@@ -8,6 +8,8 @@
   "references": [
     { "path": "../core" },
     { "path": "../adapters" },
-    { "path": "../logs" }
+    { "path": "../logs" },
+    { "path": "../agent" },
+    { "path": "../skills" }
   ]
 }

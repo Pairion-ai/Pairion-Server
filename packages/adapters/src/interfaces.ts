@@ -29,18 +29,58 @@ export interface LLMProvider {
   readonly providerId: string;
   /** Capabilities this provider supports. */
   readonly capabilities: readonly CapabilityDescriptor[];
-  /** Generate a response from a prompt. */
+  /** Generate a response from a simple string prompt. */
   generate(prompt: string, options?: LLMGenerateOptions): Promise<AsyncIterable<string>>;
+  /** Chat with messages and optional tool definitions (streaming with tool-use). */
+  chat(
+    messages: LLMMessage[],
+    tools?: ToolDefinition[],
+    options?: LLMGenerateOptions,
+  ): AsyncIterable<LLMStreamEvent>;
 }
 
 /** Options for LLM generation. */
 export interface LLMGenerateOptions {
   /** Maximum tokens to generate. */
-  readonly maxTokens?: number;
+  readonly maxTokens?: number | undefined;
   /** Temperature for sampling. */
-  readonly temperature?: number;
+  readonly temperature?: number | undefined;
   /** Whether to enable streaming. */
-  readonly stream?: boolean;
+  readonly stream?: boolean | undefined;
+}
+
+/** A message in a conversation for the chat interface. */
+export interface LLMMessage {
+  /** The role of the message author. */
+  readonly role: 'system' | 'user' | 'assistant' | 'tool';
+  /** The message text content. */
+  readonly content: string;
+  /** Tool call id when role is 'tool' (the result of a tool invocation). */
+  readonly toolCallId?: string | undefined;
+}
+
+/** A tool definition passed to the LLM for function calling. */
+export interface ToolDefinition {
+  /** Tool name (must match the skill name). */
+  readonly name: string;
+  /** Human-readable description of what the tool does. */
+  readonly description: string;
+  /** JSON Schema describing the tool's input parameters. */
+  readonly inputSchema: Record<string, unknown>;
+}
+
+/** An event emitted during LLM streaming with tool-use support. */
+export interface LLMStreamEvent {
+  /** The type of stream event. */
+  readonly type: 'text_delta' | 'tool_call_start' | 'tool_call_delta' | 'tool_call_end' | 'done';
+  /** Text content (present for text_delta). */
+  readonly text?: string | undefined;
+  /** Tool call data (present for tool_call_* events). */
+  readonly toolCall?: {
+    readonly id: string;
+    readonly name: string;
+    readonly arguments: string;
+  } | undefined;
 }
 
 /**

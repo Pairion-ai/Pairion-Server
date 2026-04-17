@@ -22,6 +22,12 @@ export interface PairionEvents {
   'system.ready': void;
   /** A generic system-level shutdown event. */
   'system.shutdown': void;
+  /** A new voice session was opened. */
+  'session.opened': { sessionId: string; deviceId: string };
+  /** A voice session was closed. */
+  'session.closed': { sessionId: string; reason: string };
+  /** A turn within a session completed. */
+  'session.turn.completed': { sessionId: string; durationMs: number };
 }
 
 /** Callback type for a specific event. */

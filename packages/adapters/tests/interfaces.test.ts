@@ -15,17 +15,19 @@ describe('adapter interface contract tests', () => {
     const mock: LLMProvider = {
       providerId: 'test',
       capabilities: [],
-      generate: async function* () { yield 'token'; },
+      generate: async () => (async function* () { yield 'token'; })(),
+      chat: async function* () { yield { type: 'text_delta' as const, text: 'hello' }; },
     };
     expect(mock.providerId).toBe('test');
     expect(typeof mock.generate).toBe('function');
+    expect(typeof mock.chat).toBe('function');
   });
 
   it('TTSProvider shape is correct', () => {
     const mock: TTSProvider = {
       providerId: 'test',
       capabilities: [],
-      synthesize: async function* () { yield new Uint8Array(); },
+      synthesize: async () => (async function* () { yield new Uint8Array(); })(),
     };
     expect(mock.providerId).toBe('test');
     expect(typeof mock.synthesize).toBe('function');

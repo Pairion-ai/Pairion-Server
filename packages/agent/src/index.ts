@@ -1,10 +1,11 @@
 /**
- * @pairion/agent — Session orchestration, turn loop, sub-agent spawning.
+ * @pairion/agent — Session orchestration, turn loop, and visible-intelligence
+ * event emission.
  *
  * @remarks
- * M0 scaffolding only. No runtime logic. The agent orchestrator owns session
- * state, the turn loop (STT → reason → tool-calls → TTS), sub-agent spawning,
- * under-breath cadence logic, and visible-intelligence event emission.
+ * The agent owns session state, the turn loop (STT → LLM → tool-calls → TTS),
+ * and emits AsyncAPI events via the SessionEmitter interface. In M1 it
+ * processes single-turn voice interactions end-to-end.
  *
  * @packageDocumentation
  */
@@ -25,3 +26,8 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   underBreathDelayMs: 2000,
   sessionTimeoutMs: 300_000,
 };
+
+export type { SessionEmitter } from './session-emitter.js';
+export { SessionManager, type Session } from './session-manager.js';
+export { processTurn, type TurnSummary } from './turn-loop.js';
+export { loadSystemPrompt } from './soul.js';

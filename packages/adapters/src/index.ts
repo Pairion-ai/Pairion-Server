@@ -2,13 +2,9 @@
  * @pairion/adapters — Pluggable backend interfaces and adapter registry.
  *
  * @remarks
- * Defines the seven adapter interfaces (LLM, TTS, STT, WakeWord, VoiceId,
- * Embedding, VectorStore) and the runtime registry. No vendor SDKs are
- * imported by any other package — all vendor interaction happens through
- * these interfaces.
- *
- * In M0, only interfaces and the registry exist. No implementations
- * are registered.
+ * Defines the seven adapter interfaces and ships reference implementations.
+ * No vendor SDKs are imported by any other package — all vendor interaction
+ * happens through these interfaces.
  *
  * @packageDocumentation
  */
@@ -17,6 +13,9 @@ export type {
   CapabilityDescriptor,
   LLMProvider,
   LLMGenerateOptions,
+  LLMMessage,
+  ToolDefinition,
+  LLMStreamEvent,
   TTSProvider,
   TTSSynthesizeOptions,
   STTProvider,
@@ -36,3 +35,10 @@ export {
   FileSecretsStore,
   ensureDevToken,
 } from './secrets-store.js';
+
+export { KeychainSecretsStore } from './keychain-secrets-store.js';
+
+export { AnthropicLLMProvider, type AnthropicConfig } from './implementations/llm/anthropic.js';
+export { KokoroMLXTTSProvider, type KokoroMLXConfig } from './implementations/tts/kokoro-mlx.js';
+export { WhisperMLXSTTProvider, type WhisperMLXConfig } from './implementations/stt/whisper-mlx.js';
+export { OpenWakeWordProvider, type OpenWakeWordConfig } from './implementations/wake-word/openwakeword.js';

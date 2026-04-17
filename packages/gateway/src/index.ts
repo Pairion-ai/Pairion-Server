@@ -14,3 +14,4 @@ export { createServer, type ServerOptions, type ServerInstance } from './server.
 export { createAuthHook } from './auth.js';
 export { setupWebSocket } from './websocket.js';
 export { registerRoutes } from './routes.js';
+export { WebSocketSessionEmitter } from './ws-session-emitter.js';

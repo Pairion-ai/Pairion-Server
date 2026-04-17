@@ -36,3 +36,7 @@ export { logger, createSubsystemLogger } from './logger.js';
 export { EventBus, type PairionEvents } from './event-bus.js';
 
 export { runMigrations, type Migration, type MigrationState } from './migration-runner.js';
+
+export { AsyncIterableQueue } from './async-iterable-queue.js';
+
+export { createOpusDecoder, createOpusEncoder } from './opus.js';

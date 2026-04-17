@@ -2,11 +2,17 @@
  * @pairion/skills — MCP skill registry, lifecycle, and invocation dispatch.
  *
  * @remarks
- * M0 scaffolding only. No runtime logic. Skill config is per-user — a User's
- * credentials for a skill are never shared with another User.
+ * Skills expose tools that the LLM can invoke during conversations.
+ * The registry manages skill installation and bridges skill definitions
+ * to LLM `ToolDefinition` format. In M1, one bundled skill (weather)
+ * is registered at startup.
  *
  * @packageDocumentation
  */
+
+export { SkillRegistry, type SkillDefinition } from './registry.js';
+export { SkillInvoker } from './invoker.js';
+export { weatherSkill, getWeather } from './bundled/weather.js';
 
 /** Skill source types. */
 export type SkillSourceKind = 'bundled' | 'mcp-url' | 'mcp-stdio' | 'local-authored';
@@ -16,7 +22,7 @@ export interface SkillSource {
   /** The kind of skill source. */
   readonly kind: SkillSourceKind;
   /** MCP server URL (for mcp-url kind). */
-  readonly url?: string;
+  readonly url?: string | undefined;
   /** Command to start the skill (for mcp-stdio kind). */
-  readonly command?: string;
+  readonly command?: string | undefined;
 }

@@ -6,9 +6,9 @@ function createMockLLM(id: string): LLMProvider {
   return {
     providerId: id,
     capabilities: [{ id: 'text-gen', label: 'Text Generation' }],
-    generate: async function* (_prompt: string, _options?: LLMGenerateOptions) {
-      yield 'hello';
-    },
+    generate: async (_prompt: string, _options?: LLMGenerateOptions) =>
+      (async function* () { yield 'hello'; })(),
+    chat: async function* () { yield { type: 'done' as const }; },
   };
 }
 
@@ -50,7 +50,7 @@ describe('AdapterRegistry', () => {
     registry.register('tts', {
       providerId: 'tts-test',
       capabilities: [],
-      synthesize: async function* () { yield new Uint8Array(); },
+      synthesize: async () => (async function* () { yield new Uint8Array(); })(),
     });
     const all = registry.listAll();
     expect(all.size).toBe(2);

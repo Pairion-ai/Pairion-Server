@@ -15,6 +15,7 @@
     "clean": "tsc --build --clean"
   },
   "dependencies": {
-    "@pairion/core": "workspace:*"
+    "@pairion/core": "workspace:*",
+    "@pairion/adapters": "workspace:*"
   }
 }

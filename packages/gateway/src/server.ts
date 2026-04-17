@@ -9,6 +9,7 @@ import { createSubsystemLogger, PairionError } from '@pairion/core';
 import { registerRoutes } from './routes.js';
 import { setupWebSocket } from './websocket.js';
 import type { WebSocketServer } from 'ws';
+import type { SessionManager } from '@pairion/agent';
 
 const log = createSubsystemLogger('gateway');
 
@@ -20,6 +21,8 @@ export interface ServerOptions {
   readonly port: number;
   /** Host to bind to. */
   readonly host: string;
+  /** Optional session manager for agent turn processing. */
+  readonly sessionManager?: SessionManager | undefined;
 }
 
 /** The created server instance with its WebSocket server. */
@@ -64,7 +67,7 @@ export function createServer(options: ServerOptions): ServerInstance {
   registerRoutes(app, options.devToken);
 
   // Set up WebSocket on the underlying HTTP server
-  const wss = setupWebSocket(app.server, options.devToken);
+  const wss = setupWebSocket(app.server, options.devToken, options.sessionManager);
 
   return { app, wss };
 }

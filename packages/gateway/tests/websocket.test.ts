@@ -121,8 +121,8 @@ describe('WebSocket protocol', () => {
         timestamp: new Date().toISOString(),
       });
       const err = await sendAndReceive(ws, {
-        type: 'WakeWordDetected',
-        confidence: 0.95,
+        type: 'InterruptRequest',
+        sessionId: '00000000-0000-0000-0000-000000000000',
         timestamp: new Date().toISOString(),
       });
       expect(err['type']).toBe('Error');

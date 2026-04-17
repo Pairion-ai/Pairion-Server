@@ -18,6 +18,8 @@
     "@pairion/core": "workspace:*",
     "@pairion/adapters": "workspace:*",
     "@pairion/logs": "workspace:*",
+    "@pairion/agent": "workspace:*",
+    "@pairion/skills": "workspace:*",
     "fastify": "^5.3.3",
     "ws": "^8.18.2"
   },
