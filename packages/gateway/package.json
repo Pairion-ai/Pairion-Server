@@ -1,0 +1,27 @@
+{
+  "name": "@pairion/gateway",
+  "version": "1.0.0-alpha.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@pairion/core": "workspace:*",
+    "@pairion/adapters": "workspace:*",
+    "@pairion/logs": "workspace:*",
+    "fastify": "^5.3.3",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}
