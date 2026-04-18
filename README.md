@@ -37,6 +37,18 @@ The server starts on port **18789**.
 | Environment Variable | Required | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | No (warn if absent) | Anthropic API key for LLM adapter |
+| `PAIRION_HOME` | No (defaults to `~/.pairion`) | Base directory for native libs and models |
+| `PAIRION_NATIVE_TESTS` | No | Set to `1` to run integration tests requiring whisper.cpp + API key |
+
+### whisper.cpp Setup
+
+The STT adapter requires the whisper.cpp shared library and model:
+
+1. Build whisper.cpp with Metal acceleration (see [whisper.cpp README](https://github.com/ggerganov/whisper.cpp))
+2. Copy `libwhisper.dylib` (macOS) or `libwhisper.so` (Linux) to `~/.pairion/native/`
+3. Download `ggml-small.en.bin` from Hugging Face and place in `~/.pairion/models/whisper/`
+
+The server starts normally without whisper.cpp — STT is simply unavailable with a clear log message.
 
 ## Endpoints
 

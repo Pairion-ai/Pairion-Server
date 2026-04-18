@@ -16,3 +16,9 @@ spring:
       ddl-auto: update
   main:
     banner-mode: off
+
+pairion:
+  adapters:
+    llm: anthropic
+    llm.anthropic.model: claude-sonnet-4-6-20250514
+    stt: whispercpp

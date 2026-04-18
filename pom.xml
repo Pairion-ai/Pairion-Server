@@ -180,6 +180,13 @@
                             <goal>check</goal>
                         </goals>
                         <configuration>
+                            <excludes>
+                                <!-- Native-only classes: require real whisper.cpp/libopus/API key.
+                                     Tested via PAIRION_NATIVE_TESTS=1 integration suite.
+                                     Unit test coverage uses the abstraction boundary interfaces. -->
+                                <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper.class</exclude>
+                                <exclude>com/pairion/adapters/stt/whispercpp/DefaultWhisperCppNative.class</exclude>
+                            </excludes>
                             <rules>
                                 <rule>
                                     <element>BUNDLE</element>
