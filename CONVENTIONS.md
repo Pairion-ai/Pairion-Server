@@ -53,9 +53,10 @@ Claude never writes code of any kind in any prompt. This includes implementation
 ## 4. Local Verification (no CI during development phase)
 
 Every task runs the following and must pass before commit:
-- `mvn clean verify` — compiles, tests, coverage checks, ArchUnit checks
+- `mvn clean verify` — compiles, tests, coverage checks, ArchUnit checks, Checkstyle (Javadoc enforcement)
 - `mvn spotless:check` — formatting
 - No warnings from `mvn compile`
+- Checkstyle runs during `verify` phase and fails the build if any public class, interface, or method is missing Javadoc (excludes DTOs, entities, records, tests, and generated code)
 
 CI (GitHub Actions) is added at M12 for launch polish only.
 

@@ -15,7 +15,7 @@ One JVM process per household. Owns user identity, voice identity, memory, skill
 mvn clean verify
 ```
 
-This compiles all modules, runs all tests, and enforces 100% code coverage.
+This compiles all modules, runs all tests, enforces 100% code coverage, and runs Checkstyle (Javadoc enforcement).
 
 ## Run
 

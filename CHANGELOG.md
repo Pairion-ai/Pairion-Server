@@ -5,6 +5,16 @@ All notable changes to Pairion Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - Checkstyle with Javadoc Enforcement
+
+### Added
+
+- Checkstyle Maven plugin bound to `verify` phase across all modules
+- `config/checkstyle/checkstyle.xml` with Javadoc enforcement rules (MissingJavadocType, MissingJavadocMethod, JavadocType, JavadocMethod)
+- `config/checkstyle/suppressions.xml` suppressing checks on test sources, generated code, and package-info files
+- Basic naming conventions (PackageName, TypeName, ConstantName) and import hygiene (AvoidStarImport, UnusedImports, RedundantImport)
+- `mvn verify` now fails if any public class or method is missing Javadoc
+
 ## [0.1.0] - M0 Walking Skeleton
 
 ### Added
