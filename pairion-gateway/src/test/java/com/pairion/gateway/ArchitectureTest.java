@@ -36,6 +36,23 @@ class ArchitectureTest {
     }
 
     @Test
+    void nativeWhisperBindingsOnlyAccessedByStttAdapter() {
+        ArchRule rule =
+                ArchRuleDefinition.noClasses()
+                        .that()
+                        .resideOutsideOfPackage("com.pairion.adapters.stt.whispercpp..")
+                        .and()
+                        .resideOutsideOfPackage("com.pairion.nativelib.whisper..")
+                        .should()
+                        .dependOnClassesThat()
+                        .resideInAnyPackage("com.pairion.nativelib.whisper..")
+                        .because(
+                                "Jextract-generated native bindings for whisper.cpp must only be"
+                                        + " accessed through the STT adapter");
+        rule.check(classes);
+    }
+
+    @Test
     void noVendorSdkOutsideAdapters() {
         ArchRule rule =
                 ArchRuleDefinition.noClasses()

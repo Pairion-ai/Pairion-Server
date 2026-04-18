@@ -1,26 +1,31 @@
 package com.pairion.adapters.stt.whispercpp;
 
-import com.pairion.adapters.stt.whispercpp.ffm.WhisperCpp;
+import com.pairion.nativelib.whisper.NativeLibraryLoader;
+import com.pairion.nativelib.whisper.WhisperBindings;
+import com.pairion.nativelib.whisper.whisper_context_params;
+import com.pairion.nativelib.whisper.whisper_full_params;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * Production implementation of {@link WhisperCppNative} using Java 21 FFM API.
+ * Production implementation of {@link WhisperCppNative} using jextract-generated FFM bindings.
  *
  * <p>Loads the whisper.cpp native library from the classpath (bundled by the {@code
  * pairion-native-whisper} module) and the model from {@code $PAIRION_HOME/models/whisper/}. Apple
  * Silicon Metal acceleration is enabled by default via the build flags in the native module.
  *
- * <p>If the bundled library or model is absent, reports unavailable rather than failing. The server
- * continues running; the STT adapter simply cannot transcribe until the model is downloaded.
+ * <p>Registers a JVM shutdown hook to call {@code whisper_free()} on acquired contexts before exit,
+ * preventing the GGML Metal cleanup assertion that would otherwise crash the process.
  */
 @Component
-@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+@ConditionalOnProperty(
         name = "pairion.stt.native.enabled",
         havingValue = "true",
         matchIfMissing = true)
@@ -42,7 +47,12 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
     private MemorySegment whisperContext;
     private final Arena arena;
 
-    /** Constructs the native wrapper, loading the bundled library and initializing the context. */
+    /**
+     * Constructs the native wrapper, loading the bundled library and initializing the context.
+     *
+     * <p>A JVM shutdown hook is registered to free the whisper context before exit, preventing GGML
+     * Metal cleanup assertions.
+     */
     public DefaultWhisperCppNative() {
         String pairionHome = System.getenv("PAIRION_HOME");
         Path basePath =
@@ -54,7 +64,15 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
         this.arena = Arena.ofShared();
 
         // Load bundled library from classpath
-        this.libraryLoaded = WhisperCpp.initialize();
+        boolean loaded = NativeLibraryLoader.load();
+        if (loaded) {
+            // Verify symbols are resolvable via the loaded library
+            loaded =
+                    SymbolLookup.loaderLookup()
+                            .find("whisper_init_from_file_with_params")
+                            .isPresent();
+        }
+        this.libraryLoaded = loaded;
         if (!libraryLoaded) {
             log.warn("whisper.cpp bundled library could not be loaded — STT unavailable");
         }
@@ -70,11 +88,12 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
 
         if (libraryLoaded && modelExists) {
             log.info("Initializing whisper.cpp context from {}", modelPath);
-            whisperContext = WhisperCpp.initFromFile(modelPath.toString(), arena);
+            whisperContext = initContext(modelPath.toString());
             if (whisperContext == null) {
                 log.error("Failed to initialize whisper.cpp context from {}", modelPath);
             } else {
                 log.info("whisper.cpp context initialized — STT available");
+                registerShutdownHook();
             }
         }
     }
@@ -90,7 +109,7 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
     }
 
     /**
-     * Transcribes audio via whisper.cpp FFM call.
+     * Transcribes audio via whisper.cpp FFM call using jextract-generated bindings.
      *
      * @param samples float32 audio samples at 16 kHz
      * @return the transcript text
@@ -102,18 +121,30 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
         }
 
         try (Arena transcribeArena = Arena.ofConfined()) {
+            // Get default full params (greedy strategy = 0) via pointer-returning API
+            MemorySegment paramsPtr = WhisperBindings.whisper_full_default_params_by_ref(0);
+            MemorySegment params = transcribeArena.allocate(whisper_full_params.$LAYOUT());
+            params.copyFrom(paramsPtr.reinterpret(whisper_full_params.$LAYOUT().byteSize()));
+
+            // Allocate samples in native memory
+            MemorySegment samplesSeg =
+                    transcribeArena.allocateArray(
+                            java.lang.foreign.ValueLayout.JAVA_FLOAT, samples);
+
             int result =
-                    WhisperCpp.whisperFull(
-                            whisperContext, samples, samples.length, transcribeArena);
+                    WhisperBindings.whisper_full(
+                            whisperContext, params, samplesSeg, samples.length);
             if (result != 0) {
                 log.error("whisper_full returned error code: {}", result);
                 return "";
             }
 
-            int nSegments = WhisperCpp.fullNSegments(whisperContext);
+            int nSegments = WhisperBindings.whisper_full_n_segments(whisperContext);
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < nSegments; i++) {
-                sb.append(WhisperCpp.fullGetSegmentText(whisperContext, i));
+                MemorySegment textPtr =
+                        WhisperBindings.whisper_full_get_segment_text(whisperContext, i);
+                sb.append(textPtr.reinterpret(Long.MAX_VALUE).getUtf8String(0));
             }
             return sb.toString().trim();
         }
@@ -137,5 +168,45 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
     @Override
     public String expectedModelPath() {
         return modelPath.toString();
+    }
+
+    /** Frees the whisper context. Called by the shutdown hook and may be called manually. */
+    void freeContext() {
+        if (whisperContext != null) {
+            log.info("Freeing whisper.cpp context before shutdown");
+            WhisperBindings.whisper_free(whisperContext);
+            whisperContext = null;
+        }
+    }
+
+    private MemorySegment initContext(String modelPathStr) {
+        try {
+            MemorySegment pathSeg = arena.allocateUtf8String(modelPathStr);
+
+            // Get default context params via pointer-returning API (safe — no struct layout needed)
+            MemorySegment defaultsPtr = WhisperBindings.whisper_context_default_params_by_ref();
+            MemorySegment params = arena.allocate(whisper_context_params.$LAYOUT());
+            params.copyFrom(defaultsPtr.reinterpret(whisper_context_params.$LAYOUT().byteSize()));
+
+            MemorySegment ctx = WhisperBindings.whisper_init_from_file_with_params(pathSeg, params);
+            if (ctx.equals(MemorySegment.NULL)) {
+                return null;
+            }
+            return ctx;
+        } catch (Exception e) {
+            log.error("whisper_init_from_file_with_params failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private void registerShutdownHook() {
+        Runtime.getRuntime()
+                .addShutdownHook(
+                        new Thread(
+                                () -> {
+                                    freeContext();
+                                    arena.close();
+                                },
+                                "whisper-shutdown"));
     }
 }

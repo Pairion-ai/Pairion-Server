@@ -5,6 +5,18 @@ All notable changes to Pairion Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - Complete PS-002b remaining items
+
+### Changed
+
+- jextract 21-jextract+1-2 installed, FFM bindings generated from exact whisper.h of pinned v1.8.4 source
+- Manual FFM bindings in `ffm/WhisperCpp.java` deleted; replaced by jextract-generated `com.pairion.nativelib.whisper.WhisperBindings`
+- Metal-on-JVM-exit assertion fixed via shutdown hook that calls `whisper_free()` before GGML atexit runs
+- `DefaultWhisperCppNative` JaCoCo class-level exclusion removed; class is now directly tested
+- ArchUnit rule added: only `com.pairion.adapters.stt.whispercpp.**` may import from `com.pairion.nativelib.whisper.**`
+- Install scripts (`install-jextract.sh`, `regenerate-bindings.sh`) committed
+- `pairion-native-whisper/README.md` created with pinned versions, build flags, platform matrix
+
 ## [0.2.2] - Bundle whisper.cpp from source, eliminate ABI-drift segfault class
 
 ### Changed

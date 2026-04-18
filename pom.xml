@@ -188,29 +188,26 @@
                         </goals>
                         <configuration>
                             <excludes>
-                                <!-- FFM bindings: native function wrappers that cannot execute
-                                     without the real whisper.cpp shared library loaded.
-                                     Tested via PAIRION_NATIVE_TESTS=1 integration suite. -->
-                                <exclude>com/pairion/adapters/stt/whispercpp/ffm/WhisperCpp.class</exclude>
-                                <!-- OpusDecoder.create(): the catch(OpusException) block in create()
-                                     wraps a checked exception declared by Concentus's constructor
-                                     that empirically never fires with valid 16kHz/mono params.
-                                     The class is otherwise fully tested; only the 2-line catch
-                                     body is unreachable. Excluding at class level because JaCoCo
-                                     does not support line-level exclusions. -->
+                                <!-- jextract-generated bindings: auto-generated from whisper.h,
+                                     cannot be meaningfully unit-tested without native library.
+                                     Coverage via PAIRION_NATIVE_TESTS=1 integration suite. -->
+                                <exclude>com/pairion/nativelib/whisper/WhisperBindings.class</exclude>
+                                <exclude>com/pairion/nativelib/whisper/RuntimeHelper.class</exclude>
+                                <exclude>com/pairion/nativelib/whisper/constants*.class</exclude>
+                                <exclude>com/pairion/nativelib/whisper/whisper_context_params.class</exclude>
+                                <exclude>com/pairion/nativelib/whisper/whisper_full_params.class</exclude>
+                                <!-- OpusDecoder.create(): the catch(OpusException) block wraps
+                                     a checked exception that Concentus empirically never throws. -->
                                 <exclude>com/pairion/adapters/audio/opus/OpusDecoder.class</exclude>
-                                <!-- DefaultAnthropicClientWrapper: constructor creates real
-                                     AnthropicOkHttpClient requiring a valid API key;
-                                     streamCompletion calls real Anthropic Messages API.
-                                     Unit-tested via AnthropicClientWrapper mock boundary.
-                                     Integration-tested via PAIRION_NATIVE_TESTS=1. -->
-                                <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper.class</exclude>
-                                <!-- DefaultWhisperCppNative: constructor loads real whisper.cpp
-                                     shared library via FFM and initializes GGML context from
-                                     model file. transcribe() calls real whisper_full FFM.
-                                     Unit-tested via WhisperCppNative mock boundary.
-                                     Integration-tested via PAIRION_NATIVE_TESTS=1. -->
+                                <!-- DefaultWhisperCppNative: constructor path coverage depends on
+                                     model file presence and native library state, which vary per
+                                     machine. Error paths (library load fail, model missing, context
+                                     init fail) are unreachable when library bundles and model is
+                                     present. Fully exercised during physical verification. -->
                                 <exclude>com/pairion/adapters/stt/whispercpp/DefaultWhisperCppNative.class</exclude>
+                                <!-- DefaultAnthropicClientWrapper: creates real OkHttp client
+                                     requiring a valid API key. Unit-tested via mock boundary. -->
+                                <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

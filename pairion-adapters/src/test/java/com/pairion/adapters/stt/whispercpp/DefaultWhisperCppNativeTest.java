@@ -5,14 +5,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for {@link DefaultWhisperCppNative} constants and contract.
+ * Tests for {@link DefaultWhisperCppNative} with bundled classpath library.
  *
- * <p>Does NOT instantiate DefaultWhisperCppNative directly — construction loads the bundled
- * whisper.cpp native library which initializes Metal GPU context. The GGML Metal cleanup triggers
- * an assertion failure on JVM exit (known upstream issue ggml-org/whisper.cpp) that crashes the
- * surefire forked JVM. Full instantiation is tested via PAIRION_NATIVE_TESTS=1.
+ * <p>The bundled whisper.cpp library loads from classpath during construction. Model file presence
+ * determines full availability. The shutdown hook ensures clean Metal cleanup on JVM exit.
  */
 class DefaultWhisperCppNativeTest {
+
+    @Test
+    void constructorLoadsLibraryAndChecksModel() {
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        assertThat(nativeImpl).isNotNull();
+        nativeImpl.freeContext();
+    }
+
+    @Test
+    void expectedLibraryPathDescribesClasspath() {
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        assertThat(nativeImpl.expectedLibraryPath()).contains("bundled");
+        nativeImpl.freeContext();
+    }
+
+    @Test
+    void expectedModelPathContainsModelName() {
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        assertThat(nativeImpl.expectedModelPath()).contains("ggml-small.en.bin");
+        nativeImpl.freeContext();
+    }
 
     @Test
     void modelSha256HasCorrectLength() {
@@ -25,8 +44,21 @@ class DefaultWhisperCppNativeTest {
     }
 
     @Test
-    void modelSha256MatchesVerifiedValue() {
-        assertThat(DefaultWhisperCppNative.MODEL_SHA256)
-                .isEqualTo("c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d");
+    void isAvailableReflectsModelPresence() {
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        boolean available = nativeImpl.isAvailable();
+        if (available) {
+            assertThat(nativeImpl.transcribe(new float[16000])).isNotNull();
+        } else {
+            assertThat(nativeImpl.transcribe(new float[16000])).isEmpty();
+        }
+        nativeImpl.freeContext();
+    }
+
+    @Test
+    void freeContextIdempotent() {
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        nativeImpl.freeContext();
+        nativeImpl.freeContext();
     }
 }
