@@ -26,6 +26,7 @@ import org.springframework.stereotype.Component;
         name = "pairion.adapters.stt",
         havingValue = "whispercpp",
         matchIfMissing = true)
+@org.springframework.boot.autoconfigure.condition.ConditionalOnBean(WhisperCppNative.class)
 public class WhisperCppSttAdapter implements SttAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(WhisperCppSttAdapter.class);

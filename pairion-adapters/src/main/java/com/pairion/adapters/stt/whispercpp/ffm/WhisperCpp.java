@@ -1,5 +1,6 @@
 package com.pairion.adapters.stt.whispercpp.ffm;
 
+import com.pairion.nativelib.whisper.NativeLibraryLoader;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -8,86 +9,122 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * Manual FFM bindings for the whisper.cpp C API.
+ * FFM bindings for the whisper.cpp C API, pinned to v1.8.4 ABI.
  *
- * <p><strong>AUTOGEN NOTICE:</strong> Manually written FFM bindings matching whisper.h. Regenerate
- * via jextract when available. Covers the minimal API surface for streaming transcription.
+ * <p>Uses pointer-returning API functions ({@code _by_ref}) to obtain default parameter structs,
+ * then copies them into managed memory for by-value function calls. Struct sizes are measured from
+ * the pinned whisper.cpp version: {@code whisper_context_params} = 48 bytes, {@code
+ * whisper_full_params} = 304 bytes.
  *
- * <p>Pinned to whisper.cpp API compatible with release v1.7.3.
+ * <p>The native library is loaded from the classpath via {@link NativeLibraryLoader}.
  */
 public final class WhisperCpp {
+
+    private static final Logger log = LoggerFactory.getLogger(WhisperCpp.class);
+
+    /** Size of whisper_context_params struct in bytes (v1.8.4). */
+    static final int CONTEXT_PARAMS_SIZE = 48;
+
+    /** Size of whisper_full_params struct in bytes (v1.8.4). */
+    static final int FULL_PARAMS_SIZE = 304;
 
     private WhisperCpp() {}
 
     private static SymbolLookup lookup;
 
     /**
-     * Loads the whisper.cpp shared library from the given path.
+     * Initializes the FFM bindings by loading the bundled whisper.cpp library.
      *
-     * @param libraryPath path to the shared library
-     * @param arena the arena for library lifecycle
-     * @return true if the library was loaded successfully
+     * @return true if the library was loaded and symbols are resolvable
      */
-    public static boolean loadLibrary(String libraryPath, Arena arena) {
-        try {
-            System.load(libraryPath);
-            lookup = SymbolLookup.loaderLookup();
+    public static synchronized boolean initialize() {
+        if (lookup != null) {
             return true;
-        } catch (UnsatisfiedLinkError e) {
-            return false;
         }
+        boolean loaded = NativeLibraryLoader.load();
+        if (loaded) {
+            lookup = SymbolLookup.loaderLookup();
+            log.info("whisper.cpp FFM bindings initialized");
+        }
+        return loaded;
     }
 
     /**
-     * Returns whether the library has been loaded.
+     * Returns whether the library has been loaded and symbols are available.
      *
-     * @return true if whisper.cpp is loaded
+     * @return true if initialized
      */
-    public static boolean isLoaded() {
+    public static boolean isInitialized() {
         return lookup != null;
     }
 
     /**
-     * Calls whisper_init_from_file_with_params to initialize a context.
+     * Initializes a whisper context from a model file with default parameters.
      *
      * @param modelPath path to the GGML model file
      * @param arena arena for native memory allocation
-     * @return the whisper_context pointer, or MemorySegment.NULL on failure
+     * @return the whisper_context pointer, or null on failure
      */
     public static MemorySegment initFromFile(String modelPath, Arena arena) {
         try {
+            MethodHandle getDefaults =
+                    downcall(
+                            "whisper_context_default_params_by_ref",
+                            FunctionDescriptor.of(ValueLayout.ADDRESS));
+            MemorySegment defaultsPtr = (MemorySegment) getDefaults.invoke();
+
+            MemorySegment params = arena.allocate(CONTEXT_PARAMS_SIZE);
+            params.copyFrom(defaultsPtr.reinterpret(CONTEXT_PARAMS_SIZE));
+
             MemorySegment pathSeg = arena.allocateUtf8String(modelPath);
-            MemorySegment params = arena.allocate(64);
-            MethodHandle mh =
+            MethodHandle initFn =
                     downcall(
                             "whisper_init_from_file_with_params",
                             FunctionDescriptor.of(
                                     ValueLayout.ADDRESS,
                                     ValueLayout.ADDRESS,
                                     MemoryLayout.structLayout(
-                                            ValueLayout.JAVA_INT.withName("use_gpu"))));
-            return (MemorySegment) mh.invoke(pathSeg, params);
+                                            MemoryLayout.sequenceLayout(
+                                                    CONTEXT_PARAMS_SIZE, ValueLayout.JAVA_BYTE))));
+            MemorySegment ctx = (MemorySegment) initFn.invoke(pathSeg, params);
+
+            if (ctx.equals(MemorySegment.NULL)) {
+                return null;
+            }
+            return ctx;
         } catch (Throwable t) {
-            return MemorySegment.NULL;
+            log.error("whisper_init_from_file_with_params failed: {}", t.getMessage());
+            return null;
         }
     }
 
     /**
-     * Calls whisper_full to run full transcription on PCM audio.
+     * Runs full transcription on PCM audio with default greedy-strategy parameters.
      *
      * @param ctx the whisper context
-     * @param samples float32 PCM audio samples
+     * @param samples float32 PCM audio samples at 16 kHz
      * @param nSamples number of samples
-     * @param arena arena for parameter struct allocation
-     * @return 0 on success
+     * @param arena arena for memory allocation
+     * @return 0 on success, negative on failure
      */
     public static int whisperFull(MemorySegment ctx, float[] samples, int nSamples, Arena arena) {
         try {
-            MemorySegment params = arena.allocate(512);
+            MethodHandle getDefaults =
+                    downcall(
+                            "whisper_full_default_params_by_ref",
+                            FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
+            MemorySegment defaultsPtr = (MemorySegment) getDefaults.invoke(0);
+
+            MemorySegment params = arena.allocate(FULL_PARAMS_SIZE);
+            params.copyFrom(defaultsPtr.reinterpret(FULL_PARAMS_SIZE));
+
             MemorySegment samplesSeg = arena.allocateArray(ValueLayout.JAVA_FLOAT, samples);
-            MethodHandle mh =
+
+            MethodHandle fullFn =
                     downcall(
                             "whisper_full",
                             FunctionDescriptor.of(
@@ -95,20 +132,21 @@ public final class WhisperCpp {
                                     ValueLayout.ADDRESS,
                                     MemoryLayout.structLayout(
                                             MemoryLayout.sequenceLayout(
-                                                    512, ValueLayout.JAVA_BYTE)),
+                                                    FULL_PARAMS_SIZE, ValueLayout.JAVA_BYTE)),
                                     ValueLayout.ADDRESS,
                                     ValueLayout.JAVA_INT));
-            return (int) mh.invoke(ctx, params, samplesSeg, nSamples);
+            return (int) fullFn.invoke(ctx, params, samplesSeg, nSamples);
         } catch (Throwable t) {
+            log.error("whisper_full failed: {}", t.getMessage());
             return -1;
         }
     }
 
     /**
-     * Calls whisper_full_n_segments to get the number of transcript segments.
+     * Returns the number of transcript segments produced by the last whisper_full call.
      *
      * @param ctx the whisper context
-     * @return number of segments
+     * @return number of segments, or 0 on error
      */
     public static int fullNSegments(MemorySegment ctx) {
         try {
@@ -118,15 +156,16 @@ public final class WhisperCpp {
                             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
             return (int) mh.invoke(ctx);
         } catch (Throwable t) {
+            log.error("whisper_full_n_segments failed: {}", t.getMessage());
             return 0;
         }
     }
 
     /**
-     * Calls whisper_full_get_segment_text to get the text of a segment.
+     * Returns the text of a transcript segment.
      *
      * @param ctx the whisper context
-     * @param segmentIndex segment index
+     * @param segmentIndex zero-based segment index
      * @return the segment text, or empty string on error
      */
     public static String fullGetSegmentText(MemorySegment ctx, int segmentIndex) {
@@ -141,12 +180,13 @@ public final class WhisperCpp {
             MemorySegment textPtr = (MemorySegment) mh.invoke(ctx, segmentIndex);
             return textPtr.reinterpret(Long.MAX_VALUE).getUtf8String(0);
         } catch (Throwable t) {
+            log.error("whisper_full_get_segment_text failed: {}", t.getMessage());
             return "";
         }
     }
 
     /**
-     * Calls whisper_free to free a whisper context.
+     * Frees a whisper context and all associated resources.
      *
      * @param ctx the whisper context to free
      */
@@ -156,7 +196,7 @@ public final class WhisperCpp {
                     downcall("whisper_free", FunctionDescriptor.ofVoid(ValueLayout.ADDRESS));
             mh.invoke(ctx);
         } catch (Throwable t) {
-            // best-effort cleanup
+            log.error("whisper_free failed: {}", t.getMessage());
         }
     }
 

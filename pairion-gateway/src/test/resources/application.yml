@@ -9,3 +9,8 @@ spring:
       enabled: true
   main:
     banner-mode: off
+
+pairion:
+  stt:
+    native:
+      enabled: false

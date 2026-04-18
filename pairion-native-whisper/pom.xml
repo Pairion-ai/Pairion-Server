@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.pairion</groupId>
+        <artifactId>pairion-server</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pairion-native-whisper</artifactId>
+    <name>Pairion Native Whisper</name>
+    <description>Builds whisper.cpp from source and packages the native library as a classpath resource</description>
+
+    <properties>
+        <!-- Pinned whisper.cpp version — all FFM bindings target this exact ABI -->
+        <whisper.cpp.tag>v1.8.4</whisper.cpp.tag>
+        <whisper.cpp.sha>9386f239401074690479731c1e41683fbbeac557</whisper.cpp.sha>
+        <whisper.cpp.src>${project.build.directory}/whisper.cpp-src</whisper.cpp.src>
+        <whisper.cpp.build>${project.build.directory}/whisper.cpp-build</whisper.cpp.build>
+    </properties>
+
+    <build>
+        <plugins>
+            <!-- Step 1: Clone whisper.cpp at pinned SHA -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>clone-whisper</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>
+                                    if [ ! -d "${whisper.cpp.src}/.git" ]; then
+                                        git clone --depth 1 --branch ${whisper.cpp.tag} https://github.com/ggerganov/whisper.cpp.git "${whisper.cpp.src}"
+                                    fi
+                                </argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Step 2: Build with CMake + Metal -->
+                    <execution>
+                        <id>build-whisper</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>
+                                    cd "${whisper.cpp.src}" &amp;&amp;
+                                    cmake -B "${whisper.cpp.build}" \
+                                        -DGGML_METAL=ON \
+                                        -DBUILD_SHARED_LIBS=ON \
+                                        -DWHISPER_BUILD_EXAMPLES=OFF \
+                                        -DWHISPER_BUILD_TESTS=OFF \
+                                        -DCMAKE_BUILD_TYPE=Release &amp;&amp;
+                                    cmake --build "${whisper.cpp.build}" --config Release -j$(sysctl -n hw.ncpu)
+                                </argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Step 3: Copy library to classpath resource location -->
+                    <execution>
+                        <id>copy-native-lib</id>
+                        <phase>generate-resources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>
+                                    PLATFORM="darwin-aarch64"
+                                    DEST="${project.build.outputDirectory}/native/${PLATFORM}"
+                                    mkdir -p "${DEST}"
+                                    LIB=$(find "${whisper.cpp.build}" -name 'libwhisper.dylib' -not -type l | head -1)
+                                    if [ -z "$LIB" ]; then
+                                        LIB=$(find "${whisper.cpp.build}" -name 'libwhisper*.dylib' | head -1)
+                                    fi
+                                    if [ -n "$LIB" ]; then
+                                        cp "$LIB" "${DEST}/libwhisper.dylib"
+                                        echo "Copied $LIB to ${DEST}/libwhisper.dylib"
+                                    else
+                                        echo "ERROR: libwhisper.dylib not found in build output"
+                                        exit 1
+                                    fi
+                                </argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -5,6 +5,22 @@ All notable changes to Pairion Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - Bundle whisper.cpp from source, eliminate ABI-drift segfault class
+
+### Changed
+
+- New `pairion-native-whisper` Maven module: clones whisper.cpp v1.8.4 from source, builds with `GGML_METAL=ON`, packages `libwhisper.dylib` as classpath resource
+- Rewritten FFM bindings: use `_by_ref` API functions to obtain default params, then pass correct-size structs by value (48-byte context params, 304-byte full params — verified against compiled whisper.h)
+- `DefaultWhisperCppNative` loads library from classpath via `NativeLibraryLoader` (temp-file extraction, `System.load`)
+- `~/.pairion/native/` convention retired — no user-installed whisper.cpp required
+- Updated `MODEL_SHA256` to `c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d` (current HuggingFace value)
+- Added `--enable-native-access=ALL-UNNAMED` to Spring Boot and Surefire JVM args
+
+### Removed
+
+- Hand-written FFM bindings placeholder script (`whispercpp-jextract.sh`)
+- User-facing whisper.cpp installation instructions from README
+
 ## [0.2.1] - PS-002 Stabilization — vendor integrations made real
 
 ### Changed

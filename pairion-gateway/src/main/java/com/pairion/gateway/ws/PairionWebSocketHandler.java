@@ -60,7 +60,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
      */
     public PairionWebSocketHandler(
             ObjectMapper objectMapper,
-            SttAdapter sttAdapter,
+            @org.springframework.lang.Nullable SttAdapter sttAdapter,
             LlmAdapter llmAdapter,
             SoulPromptProvider soulProvider) {
         this.objectMapper = objectMapper;

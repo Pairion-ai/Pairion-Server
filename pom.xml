@@ -19,6 +19,7 @@
     <description>Ambient, voice-first, household-scale AI presence — server component</description>
 
     <modules>
+        <module>pairion-native-whisper</module>
         <module>pairion-core</module>
         <module>pairion-adapters</module>
         <module>pairion-household</module>
@@ -42,6 +43,11 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>com.pairion</groupId>
+                <artifactId>pairion-native-whisper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.pairion</groupId>
                 <artifactId>pairion-core</artifactId>
@@ -162,7 +168,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>${argLine} --enable-preview</argLine>
+                    <argLine>${argLine} --enable-preview --enable-native-access=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
             <plugin>

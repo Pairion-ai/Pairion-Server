@@ -40,22 +40,22 @@ The server starts on port **18789**.
 | `PAIRION_HOME` | No (defaults to `~/.pairion`) | Base directory for native libs and models |
 | `PAIRION_NATIVE_TESTS` | No | Set to `1` to run integration tests requiring whisper.cpp + API key |
 
-### Dependencies
+### Embedded Native Libraries
 
-- **Anthropic Java SDK** `com.anthropic:anthropic-java:2.25.0` — LLM adapter for Claude
-- **Concentus** `io.github.jaredmdobson:concentus:1.0.2` — pure-Java Opus decoder (MIT-style)
-- **jextract** — not currently installed; FFM bindings are manually written. Install from `jdk.java.net/jextract/` to regenerate via `pairion-adapters/whispercpp-jextract.sh`
+Pairion bundles its own whisper.cpp build; no additional native dependencies required. The `pairion-native-whisper` Maven module clones whisper.cpp v1.8.4 from source and builds it with Metal acceleration during `mvn install`.
 
-### whisper.cpp Setup
+| Library | Version | Build Flags | Platform |
+|---|---|---|---|
+| whisper.cpp | v1.8.4 | `GGML_METAL=ON BUILD_SHARED_LIBS=ON` | macOS ARM64 |
 
-The STT adapter requires the whisper.cpp shared library and model:
+### Whisper Model
 
-1. Build whisper.cpp with Metal acceleration: `cmake -B build -DGGML_METAL=ON && cmake --build build`
-2. Copy `libwhisper.dylib` (macOS) or `libwhisper.so` (Linux) to `~/.pairion/native/`
-3. Download `ggml-small.en.bin` from Hugging Face and place in `~/.pairion/models/whisper/`
-4. On Apple Silicon, ensure the whisper.cpp build uses `GGML_METAL=ON` for Metal acceleration
+The STT adapter requires the `ggml-small.en.bin` model file:
 
-The server starts normally without whisper.cpp — STT is simply unavailable with a clear log message.
+1. Download from Hugging Face: `~/.pairion/models/whisper/ggml-small.en.bin`
+2. The model is SHA-256 verified on first use
+
+Production deployments should include `--enable-preview --enable-native-access=ALL-UNNAMED` in JVM arguments.
 
 ## Endpoints
 
