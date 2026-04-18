@@ -23,4 +23,8 @@
 
     <!-- package-info.java — not a class/interface, suppress type-level checks -->
     <suppress files="package-info\.java$" checks="MissingJavadocType|JavadocType"/>
+
+    <!-- FFM bindings — manually written to match whisper.h C API; Javadoc method checks
+         relaxed because parameter names match the C API rather than Java conventions -->
+    <suppress files="[/\\]ffm[/\\]" checks="MissingJavadocMethod"/>
 </suppressions>

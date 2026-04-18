@@ -9,31 +9,36 @@ class DefaultWhisperCppNativeTest {
 
     @Test
     void unavailableWhenLibraryMissing() {
-        DefaultWhisperCppNative native_ = new DefaultWhisperCppNative();
-        assertThat(native_.isAvailable()).isFalse();
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        assertThat(nativeImpl.isAvailable()).isFalse();
     }
 
     @Test
     void transcribeReturnsEmptyWhenUnavailable() {
-        DefaultWhisperCppNative native_ = new DefaultWhisperCppNative();
-        String result = native_.transcribe(new float[] {0.0f, 0.1f});
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        String result = nativeImpl.transcribe(new float[] {0.0f, 0.1f});
         assertThat(result).isEmpty();
     }
 
     @Test
-    void expectedLibraryPathNotNull() {
-        DefaultWhisperCppNative native_ = new DefaultWhisperCppNative();
-        assertThat(native_.expectedLibraryPath()).isNotEmpty();
+    void expectedLibraryPathContainsLibName() {
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        assertThat(nativeImpl.expectedLibraryPath()).contains("libwhisper");
     }
 
     @Test
-    void expectedModelPathNotNull() {
-        DefaultWhisperCppNative native_ = new DefaultWhisperCppNative();
-        assertThat(native_.expectedModelPath()).isNotEmpty();
+    void expectedModelPathContainsModelName() {
+        DefaultWhisperCppNative nativeImpl = new DefaultWhisperCppNative();
+        assertThat(nativeImpl.expectedModelPath()).contains("ggml-small.en.bin");
     }
 
     @Test
     void modelSha256Constant() {
-        assertThat(DefaultWhisperCppNative.MODEL_SHA256).isNotEmpty();
+        assertThat(DefaultWhisperCppNative.MODEL_SHA256).hasSize(64);
+    }
+
+    @Test
+    void modelUrlConstant() {
+        assertThat(DefaultWhisperCppNative.MODEL_URL).contains("huggingface.co");
     }
 }

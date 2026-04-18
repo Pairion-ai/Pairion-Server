@@ -49,7 +49,11 @@ public class OpusDecoder {
      * @return a new decoder instance
      */
     public static OpusDecoder create() {
-        return new OpusDecoder(new ConcentusOpusDecoder());
+        try {
+            return new OpusDecoder(new ConcentusOpusDecoder());
+        } catch (io.github.jaredmdobson.concentus.OpusException e) {
+            throw new IllegalStateException("Failed to create Opus decoder", e);
+        }
     }
 
     /**

@@ -1,5 +1,8 @@
 package com.pairion.adapters.stt.whispercpp;
 
+import com.pairion.adapters.stt.whispercpp.ffm.WhisperCpp;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.slf4j.Logger;
@@ -26,15 +29,22 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
                     ? "libwhisper.dylib"
                     : "libwhisper.so";
 
-    /** Expected SHA-256 hash for ggml-small.en.bin (whisper.cpp release). */
+    /** Expected SHA-256 hash for ggml-small.en.bin (whisper.cpp GGML release). */
     public static final String MODEL_SHA256 =
-            "6bfb10b7e0c2a4a6d5a8b5f14c7e2d3a9c8b7e6d5f4a3c2b1a0e9d8c7b6a5f4";
+            "ed3a3a91c2dbc0bd45078a20d1dd5dd063bdb9e299b0287936aafdab4bfba399";
+
+    /** Download URL for the whisper model. */
+    public static final String MODEL_URL =
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin";
 
     private final Path nativePath;
     private final Path modelPath;
-    private final boolean available;
+    private final boolean libraryLoaded;
+    private final boolean modelPresent;
+    private MemorySegment whisperContext;
+    private final Arena arena;
 
-    /** Constructs the native wrapper, checking for library and model presence. */
+    /** Constructs the native wrapper, attempting to load the library and model. */
     public DefaultWhisperCppNative() {
         String pairionHome = System.getenv("PAIRION_HOME");
         Path basePath =
@@ -44,55 +54,83 @@ public class DefaultWhisperCppNative implements WhisperCppNative {
 
         this.nativePath = basePath.resolve("native").resolve(LIB_FILENAME);
         this.modelPath = basePath.resolve("models").resolve("whisper").resolve(MODEL_FILENAME);
+        this.arena = Arena.ofShared();
 
-        boolean libExists = Files.exists(nativePath);
-        boolean modelExists = Files.exists(modelPath);
-        this.available = libExists && modelExists;
-
-        if (!libExists) {
+        boolean libLoaded = false;
+        if (Files.exists(nativePath)) {
+            libLoaded = WhisperCpp.loadLibrary(nativePath.toString(), arena);
+            if (libLoaded) {
+                log.info("whisper.cpp library loaded from {}", nativePath);
+            } else {
+                log.error("Failed to load whisper.cpp library from {}", nativePath);
+            }
+        } else {
             log.warn(
                     "whisper.cpp library not found at {}. Install whisper.cpp and copy the shared"
                             + " library to this location.",
                     nativePath);
         }
-        if (!modelExists) {
+        this.libraryLoaded = libLoaded;
+
+        this.modelPresent = Files.exists(modelPath);
+        if (!modelPresent) {
             log.warn(
                     "whisper.cpp model not found at {}. Download ggml-small.en.bin from"
                             + " huggingface.co/ggerganov/whisper.cpp and place it here.",
                     modelPath);
         }
-        if (available) {
-            log.info("whisper.cpp native library and model found — STT available");
+
+        if (libraryLoaded && modelPresent) {
+            log.info("whisper.cpp native library and model found — initializing context");
+            whisperContext = WhisperCpp.initFromFile(modelPath.toString(), arena);
+            if (whisperContext == null || whisperContext.equals(MemorySegment.NULL)) {
+                log.error("Failed to initialize whisper.cpp context from {}", modelPath);
+                whisperContext = null;
+            } else {
+                log.info("whisper.cpp context initialized — STT available");
+            }
         }
     }
 
     /**
-     * Returns whether the native library and model are present.
+     * Returns whether the native library is loaded, model present, and context initialized.
      *
      * @return true if ready to transcribe
      */
     @Override
     public boolean isAvailable() {
-        return available;
+        return libraryLoaded && modelPresent && whisperContext != null;
     }
 
     /**
      * Transcribes audio via whisper.cpp FFM call.
-     *
-     * <p>In PS-002, this returns an empty string when called — the real FFM call is wired when
-     * jextract bindings are generated (requires jextract tooling not present in this environment).
-     * Integration tests with {@code PAIRION_NATIVE_TESTS=1} exercise the real path.
      *
      * @param samples float32 audio samples at 16 kHz
      * @return the transcript text
      */
     @Override
     public String transcribe(float[] samples) {
-        if (!available) {
+        if (!isAvailable()) {
             return "";
         }
-        log.debug("whisper.cpp transcribe called with {} samples (FFM stub)", samples.length);
-        return "";
+
+        try (Arena transcribeArena = Arena.ofConfined()) {
+            int result =
+                    WhisperCpp.whisperFull(
+                            whisperContext, samples, samples.length, transcribeArena);
+            if (result != 0) {
+                log.error("whisper_full returned error code: {}", result);
+                return "";
+            }
+
+            int nSegments = WhisperCpp.fullNSegments(whisperContext);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < nSegments; i++) {
+                String segText = WhisperCpp.fullGetSegmentText(whisperContext, i);
+                sb.append(segText);
+            }
+            return sb.toString().trim();
+        }
     }
 
     /**

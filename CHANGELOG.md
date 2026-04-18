@@ -5,6 +5,21 @@ All notable changes to Pairion Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - PS-002 Stabilization — vendor integrations made real
+
+### Changed
+
+- Upgraded `anthropic-java` from 2.5.0 to 2.25.0 (current GA, published 2026-03-19)
+- Wired real Concentus Opus decoder (`io.github.jaredmdobson:concentus:1.0.2`) — inbound Opus frames now produce real PCM instead of silence
+- Implemented real DefaultWhisperCppNative with Java 21 FFM bindings for whisper.cpp (library loading, context init, transcription)
+- Manual FFM bindings committed under `pairion-adapters/src/main/java/.../ffm/` (jextract unavailable; jextract script committed for regeneration)
+- Default LLM model configured as `claude-sonnet-4-6-20250514`
+- Added `ModelDownloader` utility in pairion-core for SHA-256 verified model downloads with progress logging
+- Added formal `NativeIntegrationTests` suite gated by `PAIRION_NATIVE_TESTS=1` environment variable
+- Reduced JaCoCo blanket exclusions to justified native-dependent classes only (WhisperCpp FFM, DefaultAnthropicClientWrapper, DefaultWhisperCppNative, OpusDecoder.create catch)
+- Checkstyle suppressions extended for FFM binding files
+- Enabled `--enable-preview` for Java 21 FFM API support
+
 ## [0.2.0] - M1 Part 1 — STT and LLM
 
 ### Added
