@@ -199,12 +199,6 @@
                                 <!-- OpusDecoder.create(): the catch(OpusException) block wraps
                                      a checked exception that Concentus empirically never throws. -->
                                 <exclude>com/pairion/adapters/audio/opus/OpusDecoder.class</exclude>
-                                <!-- DefaultWhisperCppNative: constructor path coverage depends on
-                                     model file presence and native library state, which vary per
-                                     machine. Error paths (library load fail, model missing, context
-                                     init fail) are unreachable when library bundles and model is
-                                     present. Fully exercised during physical verification. -->
-                                <exclude>com/pairion/adapters/stt/whispercpp/DefaultWhisperCppNative.class</exclude>
                                 <!-- DefaultAnthropicClientWrapper: creates real OkHttp client
                                      requiring a valid API key. Unit-tested via mock boundary. -->
                                 <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper.class</exclude>

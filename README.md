@@ -6,8 +6,9 @@ One JVM process per household. Owns user identity, voice identity, memory, skill
 
 ## Prerequisites
 
-- Java 21+
-- Maven 3.9+
+- **JDK 21** (required — FFM API used for whisper.cpp bindings is a JDK 21 feature)
+- **Maven 3.9+**
+- **jextract 21-jextract+1-2** (required only to regenerate FFM bindings from `whisper.h`; install via `bin/install-jextract.sh`; pre-generated bindings are committed and do not require jextract for normal builds)
 
 ## Build
 
@@ -90,6 +91,16 @@ Protocol: JSON text frames for events, binary frames for audio.
 ```bash
 mvn test
 ```
+
+To run real-library integration tests including end-to-end transcription verification against the
+bundled whisper.cpp and a real model file:
+
+```bash
+PAIRION_NATIVE_TESTS=1 mvn verify -pl pairion-adapters
+```
+
+These tests require `ggml-small.en.bin` to be installed (see Whisper Model section above) and the
+bundled native library to be built. They are skipped cleanly when `PAIRION_NATIVE_TESTS` is unset.
 
 ## Format
 

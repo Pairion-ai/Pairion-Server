@@ -5,6 +5,30 @@ All notable changes to Pairion Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - PS-002d: Close remaining PS-002c gaps
+
+### Added
+
+- `transcribesJfkFixture()` integration test: loads `jfk.wav` (public-domain JFK speech, 16 kHz
+  mono), feeds real PCM to whisper.cpp, asserts transcript within Levenshtein distance 5 of
+  expected text; gated on `PAIRION_NATIVE_TESTS=1`
+- `jfk.wav` committed to `pairion-adapters/src/test/resources/fixtures/` (352 KB,
+  whisper.cpp public-domain sample)
+- Error-path unit tests for `DefaultWhisperCppNative` covering all three failure modes: library
+  load failure (`LibraryLoader` returns false), model file missing (nonexistent path), context
+  init failure (1 KB zeros fixture causes `whisper_init_from_file_with_params` to return NULL);
+  all three run in every `mvn verify` without `PAIRION_NATIVE_TESTS`
+- `LibraryLoader` package-private functional interface for injecting the library load operation
+
+### Changed
+
+- `DefaultWhisperCppNative` refactored to accept injected `Path modelPath` and `LibraryLoader`
+  via a package-private constructor; public no-arg constructor unchanged
+- `DefaultWhisperCppNative` JaCoCo class-level exclusion removed from root `pom.xml`; class is
+  now measured at 100% line and branch coverage
+- README updated: JDK 21 requirement made explicit, jextract version noted, `PAIRION_NATIVE_TESTS`
+  integration test instructions added
+
 ## [0.2.3] - Complete PS-002b remaining items
 
 ### Changed
