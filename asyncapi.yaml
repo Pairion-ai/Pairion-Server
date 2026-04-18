@@ -1,0 +1,298 @@
+asyncapi: 2.6.0
+info:
+  title: Pairion Server WebSocket Protocol
+  version: 2.0.0-alpha.1
+  description: |
+    Real-time WebSocket protocol for Pairion. Raw binary frames for audio;
+    JSON-in-text frames for events and envelopes. Sub-protocol is pairion.v1.
+
+servers:
+  local:
+    url: ws://localhost:18789/ws/v1
+    protocol: ws
+
+channels:
+  /ws/v1:
+    subscribe:
+      summary: Messages Client receives from Server
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SessionOpened'
+          - $ref: '#/components/messages/SessionClosed'
+          - $ref: '#/components/messages/HeartbeatPong'
+          - $ref: '#/components/messages/Error'
+          - $ref: '#/components/messages/AgentStateChange'
+          - $ref: '#/components/messages/TranscriptPartial'
+          - $ref: '#/components/messages/TranscriptFinal'
+          - $ref: '#/components/messages/LlmTokenStream'
+          - $ref: '#/components/messages/ToolCallStarted'
+          - $ref: '#/components/messages/ToolCallCompleted'
+          - $ref: '#/components/messages/AudioStreamStartOut'
+          - $ref: '#/components/messages/AudioChunkOut'
+          - $ref: '#/components/messages/AudioStreamEndOut'
+          - $ref: '#/components/messages/UnderBreathAck'
+    publish:
+      summary: Messages Client sends to Server
+      message:
+        oneOf:
+          - $ref: '#/components/messages/DeviceIdentify'
+          - $ref: '#/components/messages/HeartbeatPing'
+          - $ref: '#/components/messages/WakeWordDetected'
+          - $ref: '#/components/messages/AudioStreamStartIn'
+          - $ref: '#/components/messages/AudioChunkIn'
+          - $ref: '#/components/messages/SpeechEnded'
+          - $ref: '#/components/messages/AudioStreamEndIn'
+          - $ref: '#/components/messages/TextMessage'
+
+components:
+  messages:
+    DeviceIdentify:
+      payload:
+        type: object
+        required: [type, deviceId, bearerToken, clientVersion]
+        properties:
+          type:
+            type: string
+            const: DeviceIdentify
+          deviceId:
+            type: string
+          bearerToken:
+            type: string
+          clientVersion:
+            type: string
+    SessionOpened:
+      payload:
+        type: object
+        required: [type, sessionId, serverVersion]
+        properties:
+          type:
+            type: string
+            const: SessionOpened
+          sessionId:
+            type: string
+          serverVersion:
+            type: string
+    SessionClosed:
+      payload:
+        type: object
+        required: [type, reason]
+        properties:
+          type:
+            type: string
+            const: SessionClosed
+          reason:
+            type: string
+    HeartbeatPing:
+      payload:
+        type: object
+        required: [type, timestamp]
+        properties:
+          type:
+            type: string
+            const: HeartbeatPing
+          timestamp:
+            type: string
+            format: date-time
+    HeartbeatPong:
+      payload:
+        type: object
+        required: [type, timestamp]
+        properties:
+          type:
+            type: string
+            const: HeartbeatPong
+          timestamp:
+            type: string
+            format: date-time
+    Error:
+      payload:
+        type: object
+        required: [type, code, message]
+        properties:
+          type:
+            type: string
+            const: Error
+          code:
+            type: string
+          message:
+            type: string
+    WakeWordDetected:
+      payload:
+        type: object
+        required: [type, timestamp]
+        properties:
+          type:
+            type: string
+            const: WakeWordDetected
+          timestamp:
+            type: string
+            format: date-time
+          confidence:
+            type: number
+    AudioStreamStartIn:
+      payload:
+        type: object
+        required: [type, streamId, codec, sampleRate]
+        properties:
+          type:
+            type: string
+            const: AudioStreamStart
+          streamId:
+            type: string
+          codec:
+            type: string
+            const: opus
+          sampleRate:
+            type: integer
+            const: 16000
+    AudioChunkIn:
+      summary: Binary Opus frame, 4-byte stream ID prefix
+      contentType: application/octet-stream
+      payload:
+        type: string
+        format: binary
+    SpeechEnded:
+      payload:
+        type: object
+        required: [type, streamId]
+        properties:
+          type:
+            type: string
+            const: SpeechEnded
+          streamId:
+            type: string
+    AudioStreamEndIn:
+      payload:
+        type: object
+        required: [type, streamId, reason]
+        properties:
+          type:
+            type: string
+            const: AudioStreamEnd
+          streamId:
+            type: string
+          reason:
+            type: string
+            enum: [normal, interrupted, error]
+    TextMessage:
+      payload:
+        type: object
+        required: [type, text]
+        properties:
+          type:
+            type: string
+            const: TextMessage
+          text:
+            type: string
+    AgentStateChange:
+      payload:
+        type: object
+        required: [type, state]
+        properties:
+          type:
+            type: string
+            const: AgentStateChange
+          state:
+            type: string
+            enum: [idle, listening, thinking, speaking]
+    TranscriptPartial:
+      payload:
+        type: object
+        required: [type, text]
+        properties:
+          type:
+            type: string
+            const: TranscriptPartial
+          text:
+            type: string
+    TranscriptFinal:
+      payload:
+        type: object
+        required: [type, text]
+        properties:
+          type:
+            type: string
+            const: TranscriptFinal
+          text:
+            type: string
+    LlmTokenStream:
+      payload:
+        type: object
+        required: [type, delta]
+        properties:
+          type:
+            type: string
+            const: LlmTokenStream
+          delta:
+            type: string
+    ToolCallStarted:
+      payload:
+        type: object
+        required: [type, toolCallId, toolName, input]
+        properties:
+          type:
+            type: string
+            const: ToolCallStarted
+          toolCallId:
+            type: string
+          toolName:
+            type: string
+          input:
+            type: object
+    ToolCallCompleted:
+      payload:
+        type: object
+        required: [type, toolCallId, output]
+        properties:
+          type:
+            type: string
+            const: ToolCallCompleted
+          toolCallId:
+            type: string
+          output:
+            type: object
+    AudioStreamStartOut:
+      payload:
+        type: object
+        required: [type, streamId, codec, sampleRate]
+        properties:
+          type:
+            type: string
+            const: AudioStreamStart
+          streamId:
+            type: string
+          codec:
+            type: string
+            const: opus
+          sampleRate:
+            type: integer
+    AudioChunkOut:
+      summary: Binary Opus frame, 4-byte stream ID prefix
+      contentType: application/octet-stream
+      payload:
+        type: string
+        format: binary
+    AudioStreamEndOut:
+      payload:
+        type: object
+        required: [type, streamId, reason]
+        properties:
+          type:
+            type: string
+            const: AudioStreamEnd
+          streamId:
+            type: string
+          reason:
+            type: string
+            enum: [normal, interrupted, error]
+    UnderBreathAck:
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type:
+            type: string
+            const: UnderBreathAck
+          acknowledgementType:
+            type: string
+            enum: [mm, sure, alright, okay]

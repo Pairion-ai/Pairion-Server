@@ -1,0 +1,378 @@
+openapi: 3.0.3
+info:
+  title: Pairion Server REST API
+  version: 2.0.0-alpha.1
+  description: |
+    REST control-plane surface for Pairion-Server. The WebSocket surface (see asyncapi.yaml)
+    carries real-time audio and event streams; REST carries CRUD and configuration operations.
+  contact:
+    name: Pairion
+  license:
+    name: Pairion Source-Available License (Non-Commercial)
+
+servers:
+  - url: http://localhost:18789/v1
+    description: Local household server
+
+tags:
+  - name: health
+    description: Server health and readiness
+  - name: household
+    description: Household, users, voice registry
+  - name: adapters
+    description: Adapter configuration
+  - name: skills
+    description: Skill catalog and invocation
+  - name: memory
+    description: Memory browsing and management
+  - name: logs
+    description: Client log forwarding
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      operationId: getHealth
+      responses:
+        '200':
+          description: Server is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /version:
+    get:
+      tags: [health]
+      summary: Server version
+      operationId: getVersion
+      responses:
+        '200':
+          description: Version info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionResponse'
+
+  /household:
+    get:
+      tags: [household]
+      summary: Get household summary
+      operationId: getHousehold
+      responses:
+        '200':
+          description: Household details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseholdResponse'
+
+  /household/users:
+    get:
+      tags: [household]
+      summary: List users
+      operationId: listUsers
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      tags: [household]
+      summary: Add a user to the household
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /household/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [household]
+      summary: Get user
+      operationId: getUser
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    delete:
+      tags: [household]
+      summary: Remove user
+      operationId: deleteUser
+      responses:
+        '204':
+          description: User removed
+
+  /adapters:
+    get:
+      tags: [adapters]
+      summary: List configured adapters
+      operationId: listAdapters
+      responses:
+        '200':
+          description: Adapter list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Adapter'
+
+  /adapters/{category}/{name}:
+    parameters:
+      - name: category
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [llm, tts, stt, wake, vad, voiceid, embedding, vectorstore]
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [adapters]
+      summary: Get adapter configuration
+      operationId: getAdapter
+      responses:
+        '200':
+          description: Adapter details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Adapter'
+
+  /skills:
+    get:
+      tags: [skills]
+      summary: List installed skills
+      operationId: listSkills
+      responses:
+        '200':
+          description: Skill list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Skill'
+
+  /skills/{skillId}:
+    parameters:
+      - name: skillId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [skills]
+      summary: Get skill
+      operationId: getSkill
+      responses:
+        '200':
+          description: Skill details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+
+  /memory/episodes:
+    get:
+      tags: [memory]
+      summary: List episodes for a user
+      operationId: listEpisodes
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Episode list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Episode'
+
+  /logs:
+    post:
+      tags: [logs]
+      summary: Forward Client logs
+      operationId: postLogs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClientLogRecord'
+      responses:
+        '204':
+          description: Logs accepted
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, down]
+
+    VersionResponse:
+      type: object
+      required: [version, buildTime]
+      properties:
+        version:
+          type: string
+        buildTime:
+          type: string
+          format: date-time
+        gitCommit:
+          type: string
+
+    HouseholdResponse:
+      type: object
+      required: [id, createdAt, users]
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      required: [id, role, displayName, createdAt]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [OWNER, MEMBER, MINOR, GUEST]
+        displayName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        enrollmentComplete:
+          type: boolean
+
+    CreateUserRequest:
+      type: object
+      required: [role, displayName]
+      properties:
+        role:
+          type: string
+          enum: [MEMBER, MINOR]
+        displayName:
+          type: string
+
+    Adapter:
+      type: object
+      required: [category, name, enabled, capabilities]
+      properties:
+        category:
+          type: string
+          enum: [llm, tts, stt, wake, vad, voiceid, embedding, vectorstore]
+        name:
+          type: string
+        enabled:
+          type: boolean
+        capabilities:
+          type: object
+          additionalProperties: true
+        license:
+          type: string
+
+    Skill:
+      type: object
+      required: [id, name, description, permittedUsers]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        permittedUsers:
+          type: array
+          items:
+            type: string
+
+    Episode:
+      type: object
+      required: [id, userId, timestamp, transcript]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        transcript:
+          type: string
+        response:
+          type: string
+        toolCalls:
+          type: array
+          items:
+            type: object
+
+    ClientLogRecord:
+      type: object
+      required: [timestamp, level, message]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [TRACE, DEBUG, INFO, WARN, ERROR]
+        message:
+          type: string
+        sessionId:
+          type: string
+        stage:
+          type: string
+        latencyMs:
+          type: integer

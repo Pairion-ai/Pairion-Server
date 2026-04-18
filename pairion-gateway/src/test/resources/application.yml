@@ -1,0 +1,11 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: pairion-server-test
+  threads:
+    virtual:
+      enabled: true
+  main:
+    banner-mode: off

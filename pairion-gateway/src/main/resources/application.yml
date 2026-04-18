@@ -1,0 +1,18 @@
+server:
+  port: 18789
+  tomcat:
+    websocket:
+      max-binary-message-buffer-size: 1048576   # 1 MB
+      max-text-message-buffer-size: 262144      # 256 KB
+
+spring:
+  application:
+    name: pairion-server
+  threads:
+    virtual:
+      enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: update
+  main:
+    banner-mode: off
