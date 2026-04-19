@@ -1,6 +1,6 @@
 # Pairion-Server Architecture
 
-**Version:** 2.0
+**Version:** 2.2
 **Status:** Foundational
 **Stack:** Java 21 + Spring Boot 3.4+ + Maven
 
@@ -34,7 +34,9 @@ Pairion-Server/  (single Maven project, multi-module)
 
 - `com.pairion.core` — Domain types, event bus, utilities. No framework annotations.
 - `com.pairion.adapters.*` — Adapter implementations. **Only place vendor SDKs may be imported.**
-  - `com.pairion.adapters.llm` — LLM adapters (Anthropic, OpenAI, Ollama, etc.)
+  - `com.pairion.adapters.llm` — LLM adapters. Two first-party implementations cover virtually the entire ecosystem:
+    - `com.pairion.adapters.llm.anthropic` — Native Anthropic Java SDK. For Claude.
+    - `com.pairion.adapters.llm.openaicompat` — Generic OpenAI-compatible HTTP adapter. Used for **every** backend speaking OpenAI's Chat Completions format, including: OpenAI, xAI (Grok), Google (Gemini), Groq, Together AI, Fireworks, DeepSeek, Ollama (local), LM Studio (local), llamafile (local), Jan (local), LocalAI (local), vLLM (local), Text Generation Inference (local), SGLang (local), and any self-hosted OpenAI-compatible endpoint. The only configuration difference between calling OpenAI and calling local Ollama is the `baseUrl` property.
   - `com.pairion.adapters.tts` — TTS adapters (Piper, etc.)
   - `com.pairion.adapters.stt` — STT adapters (whisper.cpp via FFM, etc.)
   - `com.pairion.adapters.wake` — Wake-word adapters (openWakeWord)
@@ -146,4 +148,37 @@ Turn loop:
 
 ## 12. Relationship to OpenClaw
 
-Pairion is inspired by OpenClaw (MIT, single-user messaging assistant) but is an independent project. Adopted: `SOUL.md` persona convention, `SKILL.md` skill-directory convention, gateway daemon concept. Not adopted: channel-centric architecture, single-user model, text-first design.
+Pairion adopts several architectural patterns pioneered by OpenClaw (MIT, single-user messaging-channel AI assistant): `SOUL.md` persona convention, `SKILL.md` skill-directory convention, gateway daemon concept. Pairion is not a fork; patterns are independently implemented with credit.
+
+Per Charter §14 (Project Scope), Pairion must provide **100% functional equivalency with OpenClaw** — every capability OpenClaw provides its users, Pairion provides its household. Messaging-channel integrations (WhatsApp, Slack, iMessage, Discord) are supported as optional skills. The Pairion difference is household-scale, speaker-aware, voice-first, cinematic — all layered on top of OpenClaw-equivalent agent-and-skill functionality.
+
+## 13. Future: Pairion-NodeServer and Wyoming Protocol Compatibility
+
+Not in scope for current work. Documented here so the adapter and protocol design anticipates it.
+
+**Pairion-NodeServer** will be a separate Spring Boot service (M13+) that offloads wake-word, VAD, Opus encode/decode, and speaker-ID processing from thin-endpoint hardware. It sits between thin Nodes and Pairion-Server, multiplexing N thin sessions into a single upstream Pairion-AsyncAPI session per active speaker.
+
+**Wyoming protocol compatibility** is a first-class goal for Pairion-NodeServer. The Wyoming protocol — originated by the Home Assistant project — is the de-facto open protocol for thin voice endpoints. By speaking Wyoming on the downstream side, Pairion-NodeServer works out-of-the-box with:
+
+- Home Assistant Voice Preview Edition hardware ($60 retail, ESP32-S3, fully open firmware)
+- ESPHome-based DIY voice nodes (ESP32-S3 + microphone + speaker, ~$20 in parts)
+- Any third-party Wyoming-compatible hardware
+
+Pairion does not design or build thin-Node hardware. The Home Assistant community has already solved that problem well; Pairion benefits from the entire open voice-hardware ecosystem their work catalyzed.
+
+### Design implications that affect current work
+
+To keep Wyoming-compatibility cheap to add later, current design must respect these invariants:
+
+- **Session IDs are opaque strings**, not tied to specific transport paths
+- **Device identification is decoupled from user identification** — NodeServer proxies multiple devices with different speaker identities over a shared upstream session
+- **Binary audio frames include a stream ID prefix** (already spec'd in `asyncapi.yaml`) so multiplexing is trivial
+- **Speaker-ID adapter is invokable at either tier** — runs in Pairion-Server when no NodeServer is in the path; runs in NodeServer when thin Nodes are deployed. Same adapter interface, different deployment.
+
+These are cheap design choices now. Expensive to retrofit. The current `asyncapi.yaml` and adapter interfaces already satisfy them.
+
+## 14. Relationship to Home Assistant Assist
+
+Per Charter §14 (Project Scope), Pairion must provide **100% functional equivalency with Home Assistant Assist** — every capability Home Assistant's voice pipeline provides (local-first wake/STT/TTS, smart-home integration, Wyoming-compatible hardware support) Pairion provides. The Pairion difference is the cinematic HUD, persona, speaker-aware household identity, cold-start ritual, under-breath acks, conversational skill authoring, and LLM-native reasoning — none of which Home Assistant Assist provides.
+
+Pairion and Home Assistant Assist are not competing; they solve different problems on overlapping infrastructure. Home Assistant is a smart-home platform with a voice interface. Pairion is a household AI presence that controls the smart home as one of many capabilities.

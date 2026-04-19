@@ -20,5 +20,5 @@ spring:
 pairion:
   adapters:
     llm: anthropic
-    llm.anthropic.model: claude-sonnet-4-6-20250514
+    llm.anthropic.model: claude-sonnet-4-6
     stt: whispercpp
