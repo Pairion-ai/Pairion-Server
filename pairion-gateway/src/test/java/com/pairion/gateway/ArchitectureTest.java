@@ -53,6 +53,23 @@ class ArchitectureTest {
     }
 
     @Test
+    void nativePiperBindingsOnlyAccessedByTtsAdapter() {
+        ArchRule rule =
+                ArchRuleDefinition.noClasses()
+                        .that()
+                        .resideOutsideOfPackage("com.pairion.adapters.tts.piper..")
+                        .and()
+                        .resideOutsideOfPackage("com.pairion.nativelib.piper..")
+                        .should()
+                        .dependOnClassesThat()
+                        .resideInAnyPackage("com.pairion.nativelib.piper..")
+                        .because(
+                                "Jextract-generated native bindings for Piper TTS must only be"
+                                        + " accessed through the TTS adapter");
+        rule.check(classes);
+    }
+
+    @Test
     void noVendorSdkOutsideAdapters() {
         ArchRule rule =
                 ArchRuleDefinition.noClasses()

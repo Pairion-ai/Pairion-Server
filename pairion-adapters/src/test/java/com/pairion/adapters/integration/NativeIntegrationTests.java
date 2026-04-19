@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import com.pairion.adapters.audio.opus.ConcentusOpusDecoder;
 import com.pairion.adapters.audio.opus.OpusDecoder;
 import com.pairion.adapters.stt.whispercpp.DefaultWhisperCppNative;
+import com.pairion.adapters.tts.piper.DefaultPiperTtsNative;
 import io.github.jaredmdobson.concentus.OpusApplication;
 import io.github.jaredmdobson.concentus.OpusEncoder;
 import io.github.jaredmdobson.concentus.OpusException;
@@ -14,6 +15,8 @@ import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -88,6 +91,7 @@ class NativeIntegrationTests {
                     "Respond with exactly the word: pairion",
                     "Say pairion",
                     java.util.List.of(),
+                    java.util.List.of(),
                     new com.pairion.adapters.llm.anthropic.AnthropicClientWrapper.StreamCallback() {
                         @Override
                         public void onToken(String delta) {
@@ -97,6 +101,14 @@ class NativeIntegrationTests {
                         @Override
                         public void onComplete() {
                             timing[0] = System.currentTimeMillis();
+                        }
+
+                        @Override
+                        public void onToolCallRequest(
+                                String toolCallId,
+                                String toolName,
+                                java.util.Map<String, Object> input) {
+                            // Not expected for a simple non-tool prompt
                         }
 
                         @Override
@@ -137,6 +149,105 @@ class NativeIntegrationTests {
         assertThat(distance)
                 .as("Transcript Levenshtein distance %d > 5. Actual: [%s]", distance, transcript)
                 .isLessThanOrEqualTo(5);
+    }
+
+    /**
+     * Verifies that the Piper TTS native library synthesizes audible PCM audio when available.
+     *
+     * <p>Skipped unless {@code PAIRION_NATIVE_TESTS=1} and the Piper library + model are installed.
+     */
+    @Test
+    void synthesizesSpeechToAudio() {
+        DefaultPiperTtsNative nativeImpl = new DefaultPiperTtsNative("en_GB-alan-medium");
+        assumeTrue(nativeImpl.isAvailable(), "Piper TTS not installed — skipping");
+
+        List<byte[]> chunks = new ArrayList<>();
+        nativeImpl.synthesize("Hello from Pairion.", chunks::add);
+
+        assertThat(chunks).as("Expected at least one audio chunk from Piper").isNotEmpty();
+        long totalBytes = chunks.stream().mapToLong(c -> c.length).sum();
+        assertThat(totalBytes).as("Expected non-trivial audio output").isGreaterThan(1000L);
+    }
+
+    /**
+     * Full turn loop with weather tool: STT transcript → LLM → tool dispatch → final LLM response.
+     *
+     * <p>Requires {@code ANTHROPIC_API_KEY} and real network access. The LLM is expected to call
+     * {@code get_current_weather} in response to a weather question, returning a structured result.
+     */
+    @Test
+    void fullTurnLoopWithWeather() {
+        assumeTrue(
+                System.getenv("ANTHROPIC_API_KEY") != null,
+                "ANTHROPIC_API_KEY not set — skipping full-turn weather integration test");
+
+        com.pairion.adapters.llm.anthropic.DefaultAnthropicClientWrapper wrapper =
+                new com.pairion.adapters.llm.anthropic.DefaultAnthropicClientWrapper();
+        assumeTrue(wrapper.isAvailable(), "Anthropic API not available — skipping");
+
+        com.pairion.core.llm.ToolDefinition weatherTool =
+                new com.pairion.core.llm.ToolDefinition(
+                        "get_current_weather",
+                        "Returns the current weather for a city.",
+                        java.util.Map.of(
+                                "type", "object",
+                                "properties",
+                                        java.util.Map.of(
+                                                "city",
+                                                java.util.Map.of(
+                                                        "type",
+                                                        "string",
+                                                        "description",
+                                                        "City name")),
+                                "required", java.util.List.of("city")));
+
+        List<String> toolCallIds = new ArrayList<>();
+        List<String> toolNames = new ArrayList<>();
+        List<String> tokens = new ArrayList<>();
+
+        try {
+            wrapper.streamCompletion(
+                    "claude-haiku-4-5-20251001",
+                    "You MUST call get_current_weather for any weather question. Never refuse.",
+                    "What is the weather in Dallas?",
+                    java.util.List.of(weatherTool),
+                    java.util.List.of(),
+                    new com.pairion.adapters.llm.anthropic.AnthropicClientWrapper.StreamCallback() {
+                        @Override
+                        public void onToken(String delta) {
+                            tokens.add(delta);
+                        }
+
+                        @Override
+                        public void onToolCallRequest(
+                                String toolCallId,
+                                String toolName,
+                                java.util.Map<String, Object> input) {
+                            toolCallIds.add(toolCallId);
+                            toolNames.add(toolName);
+                        }
+
+                        @Override
+                        public void onComplete() {}
+
+                        @Override
+                        public void onError(Exception e) {
+                            throw new RuntimeException("Anthropic API error", e);
+                        }
+                    });
+        } catch (RuntimeException e) {
+            String msg = e.getMessage() != null ? e.getMessage() : "";
+            String cause = e.getCause() != null ? e.getCause().getMessage() : "";
+            Assumptions.assumeTrue(
+                    !msg.contains("credit balance") && !cause.contains("credit balance"),
+                    "Anthropic account credit balance too low — skipping: " + cause);
+            throw e;
+        }
+
+        assertThat(toolNames)
+                .as("Expected LLM to call get_current_weather tool")
+                .contains("get_current_weather");
+        assertThat(toolCallIds).isNotEmpty();
     }
 
     // ── WAV loader ────────────────────────────────────────────────────────────

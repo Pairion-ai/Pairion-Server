@@ -5,6 +5,59 @@ All notable changes to Pairion Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - PS-003: M1 — First Voice (Piper TTS + Weather Tool Dispatch)
+
+### Added
+
+- `pairion-native-piper` Maven submodule: CMake build of Piper TTS v2023.11.14-2, C wrapper
+  (`piper_jni.h/cpp`) with `extern "C"` linkage routing through `piper::` namespace, jextract FFM
+  bindings generated from `piper_jni.h` → `com.pairion.nativelib.piper.PiperBindings`
+- `PiperTtsNative` SPI interface and `DefaultPiperTtsNative` FFM implementation:
+  `en_GB-alan-medium` voice (22050 Hz), `PcmConsumerHolder` ThreadLocal for native audio callback
+  bridging, `LibraryLoader` @FunctionalInterface for test injection, `resolveModelPaths` using
+  `$PAIRION_HOME` or `~/.pairion`
+- `PiperTtsAdapter`: synthesize → resample 22050→16000 Hz (linear interpolation) → Concentus Opus
+  encode in 320-sample frames → emit `TtsEvent.Chunk` / `TtsEvent.Completed`
+- `ConcentusOpusEncoder` / `OpusEncoder`: pure-Java Concentus Opus encoder with 4-byte stream ID
+  prefix, configurable sample rate, `static OpusEncoder.create(int sampleRate)` factory
+- `ToolDispatcher` (`@Component`): dispatches `AgentTool` implementations by name; returns
+  `{error: unknown_tool}` or `{error: tool_execution_failed}` on failure
+- `OpenMeteoWeatherTool`: `get_current_weather` tool; Open-Meteo geocode + forecast APIs (no API
+  key required), 5 s timeout, returns `{city, temperature_f, conditions, wind_speed_mph,
+  latitude, longitude}`; `describeWeatherCode(int)` for WMO weather codes
+- Multi-turn LLM tool use loop in `AgentSession`: `MAX_TOOL_ROUNDS = 5`, `ToolCallPair` history
+  accumulation, tool definitions passed per turn, synchronous while-loop with state transitions
+  THINKING → IDLE
+- `AgentSession` TTS wiring: SPEAKING state, `AudioStreamStartEvent`, `AudioChunkEvent`,
+  `AudioStreamEndEvent` (reason: `completed` | `error`)
+- `LlmRequest.ToolCallPair` nested record for multi-turn tool history
+- `AnthropicClientWrapper.StreamCallback.onToolCallRequest()` callback method
+- `DefaultAnthropicClientWrapper` streaming tool support: `ToolCallAccumulator` inner class
+  tracking per-block JSON accumulation; handles `content_block_start/delta/stop`; multi-turn
+  history via `ContentBlockParam.ofToolUse/ofToolResult`
+- `ModelStartupService` (`@EventListener(ApplicationReadyEvent)`): downloads Whisper and Piper
+  models on virtual threads at startup; idempotent; SHA-256 verified
+- ArchUnit rule: `nativePiperBindingsOnlyAccessedByTtsAdapter` — `com.pairion.nativelib.piper.**`
+  may only be accessed from `com.pairion.adapters.tts.piper.**`
+- New `AgentSessionEvent` types: `ToolCallStartedEvent`, `ToolCallCompletedEvent`,
+  `AudioStreamStartEvent`, `AudioChunkEvent`, `AudioStreamEndEvent`
+- Native integration tests: `synthesizesSpeechToAudio()` (Piper, gated on
+  `PAIRION_NATIVE_TESTS=1`), `fullTurnLoopWithWeather()` (Anthropic + tool call, gated on
+  `ANTHROPIC_API_KEY`)
+
+### Changed
+
+- `AgentSession` constructor extended with `TtsAdapter` and `ToolDispatcher`; `handleLlmEvent`
+  signature updated for tool accumulation
+- `AnthropicLlmAdapter.generate()` passes `toolCallHistory` to `streamCompletion` (6-arg)
+- `DefaultSoulPromptProvider` references corrected: `get_weather` → `get_current_weather`
+- `PairionWebSocketHandler` extended: `AudioChunkEvent` sent as binary frame; `serializeEvent`
+  handles all 9 event types including new audio and tool events
+- `SERVER_VERSION` bumped to `"0.3.0"`
+- `spring.threads.virtual.enabled: true` added to `application.yml`
+- JaCoCo exclusions added for `DefaultPiperTtsNative`, `com/pairion/nativelib/piper/*.class`,
+  `OpusEncoder`
+
 ## [0.2.4] - PS-002d: Close remaining PS-002c gaps
 
 ### Added

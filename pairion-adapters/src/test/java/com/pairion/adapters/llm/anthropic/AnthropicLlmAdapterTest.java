@@ -13,6 +13,7 @@ import com.pairion.core.llm.LlmEvent;
 import com.pairion.core.llm.LlmRequest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** Tests for {@link AnthropicLlmAdapter}. */
@@ -51,14 +52,16 @@ class AnthropicLlmAdapterTest {
         when(wrapper.isAvailable()).thenReturn(true);
         doAnswer(
                         inv -> {
-                            AnthropicClientWrapper.StreamCallback cb = inv.getArgument(4);
+                            // streamCompletion(model, sys, user, tools, history, callback)
+                            AnthropicClientWrapper.StreamCallback cb = inv.getArgument(5);
                             cb.onToken("Hello");
                             cb.onToken(" world");
                             cb.onComplete();
                             return null;
                         })
                 .when(wrapper)
-                .streamCompletion(anyString(), anyString(), anyString(), anyList(), any());
+                .streamCompletion(
+                        anyString(), anyString(), anyString(), anyList(), anyList(), any());
 
         AnthropicLlmAdapter adapter = new AnthropicLlmAdapter(wrapper, "model-1");
         LlmRequest request = LlmRequest.simple("system", "hi");
@@ -82,15 +85,16 @@ class AnthropicLlmAdapterTest {
                         inv -> {
                             String model = inv.getArgument(0);
                             assertThat(model).isEqualTo("custom-model");
-                            AnthropicClientWrapper.StreamCallback cb = inv.getArgument(4);
+                            AnthropicClientWrapper.StreamCallback cb = inv.getArgument(5);
                             cb.onComplete();
                             return null;
                         })
                 .when(wrapper)
-                .streamCompletion(anyString(), anyString(), anyString(), anyList(), any());
+                .streamCompletion(
+                        anyString(), anyString(), anyString(), anyList(), anyList(), any());
 
         AnthropicLlmAdapter adapter = new AnthropicLlmAdapter(wrapper, "default-model");
-        LlmRequest request = new LlmRequest("sys", "msg", List.of(), "custom-model");
+        LlmRequest request = new LlmRequest("sys", "msg", List.of(), "custom-model", List.of());
 
         List<LlmEvent> events = new ArrayList<>();
         adapter.generate(request, events::add);
@@ -105,13 +109,14 @@ class AnthropicLlmAdapterTest {
         when(wrapper.isAvailable()).thenReturn(true);
         doAnswer(
                         inv -> {
-                            AnthropicClientWrapper.StreamCallback cb = inv.getArgument(4);
+                            AnthropicClientWrapper.StreamCallback cb = inv.getArgument(5);
                             cb.onToken("partial");
                             cb.onError(new RuntimeException("API failure"));
                             return null;
                         })
                 .when(wrapper)
-                .streamCompletion(anyString(), anyString(), anyString(), anyList(), any());
+                .streamCompletion(
+                        anyString(), anyString(), anyString(), anyList(), anyList(), any());
 
         AnthropicLlmAdapter adapter = new AnthropicLlmAdapter(wrapper, "model-1");
         List<LlmEvent> events = new ArrayList<>();
@@ -119,6 +124,34 @@ class AnthropicLlmAdapterTest {
 
         assertThat(events).hasSize(2);
         assertThat(events.get(0)).isInstanceOf(LlmEvent.TokenDelta.class);
+        assertThat(events.get(1)).isInstanceOf(LlmEvent.Stop.class);
+    }
+
+    @Test
+    void generateForwardsToolCallRequest() {
+        AnthropicClientWrapper wrapper = mock(AnthropicClientWrapper.class);
+        when(wrapper.isAvailable()).thenReturn(true);
+        doAnswer(
+                        inv -> {
+                            AnthropicClientWrapper.StreamCallback cb = inv.getArgument(5);
+                            cb.onToolCallRequest("tc-1", "get_current_weather", Map.of("city", "Dallas"));
+                            cb.onComplete();
+                            return null;
+                        })
+                .when(wrapper)
+                .streamCompletion(
+                        anyString(), anyString(), anyString(), anyList(), anyList(), any());
+
+        AnthropicLlmAdapter adapter = new AnthropicLlmAdapter(wrapper, "model-1");
+        List<LlmEvent> events = new ArrayList<>();
+        adapter.generate(LlmRequest.simple("sys", "weather?"), events::add);
+
+        assertThat(events).hasSize(2);
+        assertThat(events.get(0)).isInstanceOf(LlmEvent.ToolCallRequest.class);
+        LlmEvent.ToolCallRequest req = (LlmEvent.ToolCallRequest) events.get(0);
+        assertThat(req.toolCallId()).isEqualTo("tc-1");
+        assertThat(req.toolName()).isEqualTo("get_current_weather");
+        assertThat(req.input()).containsEntry("city", "Dallas");
         assertThat(events.get(1)).isInstanceOf(LlmEvent.Stop.class);
     }
 }

@@ -38,7 +38,8 @@ import org.springframework.stereotype.Component;
 public class DefaultWhisperCppNative implements WhisperCppNative {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultWhisperCppNative.class);
-    private static final String MODEL_FILENAME = "ggml-small.en.bin";
+    /** The filename of the Whisper STT model used for download and resolution. */
+    public static final String MODEL_FILENAME = "ggml-small.en.bin";
 
     /** Expected SHA-256 hash for ggml-small.en.bin (current HuggingFace version). */
     public static final String MODEL_SHA256 =

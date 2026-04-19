@@ -1,7 +1,9 @@
 package com.pairion.adapters.llm.anthropic;
 
+import com.pairion.core.llm.LlmRequest;
 import com.pairion.core.llm.ToolDefinition;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Internal abstraction boundary over the Anthropic Java SDK client.
@@ -26,6 +28,7 @@ public interface AnthropicClientWrapper {
      * @param systemPrompt the system prompt
      * @param userMessage the user's message
      * @param tools tool definitions (may be empty)
+     * @param toolCallHistory completed tool call pairs from prior turns (may be empty)
      * @param callback callback receiving streaming events
      */
     void streamCompletion(
@@ -33,6 +36,7 @@ public interface AnthropicClientWrapper {
             String systemPrompt,
             String userMessage,
             List<ToolDefinition> tools,
+            List<LlmRequest.ToolCallPair> toolCallHistory,
             StreamCallback callback);
 
     /** Callback interface for streaming completion events. */
@@ -45,7 +49,17 @@ public interface AnthropicClientWrapper {
          */
         void onToken(String delta);
 
-        /** Called when generation completes successfully. */
+        /**
+         * Called when the LLM requests a tool call. The input JSON has been fully accumulated and
+         * parsed before this is called.
+         *
+         * @param toolCallId the unique ID for this tool call
+         * @param toolName the tool name requested
+         * @param input the parsed input parameters
+         */
+        void onToolCallRequest(String toolCallId, String toolName, Map<String, Object> input);
+
+        /** Called when generation completes successfully (including after tool_use turns). */
         void onComplete();
 
         /**

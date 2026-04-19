@@ -5,6 +5,17 @@ server:
       max-binary-message-buffer-size: 1048576
       max-text-message-buffer-size: 262144
 
+spring:
+  threads:
+    virtual:
+      enabled: true
+
+pairion:
+  adapters:
+    tts:
+      piper:
+        voice: en_GB-alan-medium
+
 logging:
   level:
     root: INFO

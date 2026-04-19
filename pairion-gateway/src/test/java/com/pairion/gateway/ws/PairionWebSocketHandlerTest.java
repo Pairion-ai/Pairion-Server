@@ -11,9 +11,12 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
+import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
+import com.pairion.agent.tools.ToolDispatcher;
 import com.pairion.core.llm.LlmCapabilities;
 import com.pairion.core.stt.SttCapabilities;
+import com.pairion.core.tts.TtsCapabilities;
 import com.pairion.core.ws.HeartbeatPong;
 import com.pairion.core.ws.SessionOpened;
 import com.pairion.core.ws.WebSocketMessage;
@@ -33,17 +36,25 @@ class PairionWebSocketHandlerTest {
     private WebSocketSession session;
     private SttAdapter sttAdapter;
     private LlmAdapter llmAdapter;
+    private TtsAdapter ttsAdapter;
     private SoulPromptProvider soulProvider;
+    private ToolDispatcher toolDispatcher;
 
     @BeforeEach
     void setUp() {
         sttAdapter = mock(SttAdapter.class);
         llmAdapter = mock(LlmAdapter.class);
+        ttsAdapter = mock(TtsAdapter.class);
         soulProvider = mock(SoulPromptProvider.class);
+        toolDispatcher = mock(ToolDispatcher.class);
         when(sttAdapter.capabilities()).thenReturn(SttCapabilities.unavailable());
         when(llmAdapter.capabilities()).thenReturn(LlmCapabilities.unavailable());
+        when(ttsAdapter.capabilities()).thenReturn(TtsCapabilities.unavailable());
         when(sttAdapter.createSession(any())).thenReturn(mock(SttAdapter.SttSession.class));
-        handler = new PairionWebSocketHandler(objectMapper, sttAdapter, llmAdapter, soulProvider);
+        handler =
+                new PairionWebSocketHandler(
+                        objectMapper, sttAdapter, llmAdapter, ttsAdapter, soulProvider,
+                        toolDispatcher);
         session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("test-session-1");
     }
@@ -68,7 +79,7 @@ class PairionWebSocketHandlerTest {
         assertThat(response).isInstanceOf(SessionOpened.class);
         SessionOpened opened = (SessionOpened) response;
         assertThat(opened.type()).isEqualTo("SessionOpened");
-        assertThat(opened.serverVersion()).isEqualTo("0.2.0");
+        assertThat(opened.serverVersion()).isEqualTo("0.3.0");
         assertThat(opened.sessionId()).isNotEmpty();
     }
 
@@ -208,5 +219,75 @@ class PairionWebSocketHandlerTest {
                 session,
                 new com.pairion.agent.session.AgentSessionEvent.StateChangeEvent(
                         com.pairion.core.agent.AgentState.IDLE));
+    }
+
+    @Test
+    void sendAgentEventAudioChunkSendsBinaryFrame() throws Exception {
+        byte[] frame = new byte[] {0x01, 0x02, 0x03, 0x04};
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.AudioChunkEvent(frame));
+
+        ArgumentCaptor<org.springframework.web.socket.BinaryMessage> captor =
+                ArgumentCaptor.forClass(org.springframework.web.socket.BinaryMessage.class);
+        verify(session).sendMessage(captor.capture());
+        assertThat(captor.getValue().getPayload().remaining()).isEqualTo(4);
+    }
+
+    @Test
+    void sendAgentEventToolCallStartedSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.ToolCallStartedEvent(
+                        "tc-1", "get_current_weather", java.util.Map.of("city", "Dallas")));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("ToolCallStarted");
+    }
+
+    @Test
+    void sendAgentEventToolCallCompletedSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.ToolCallCompletedEvent(
+                        "tc-1", "get_current_weather", java.util.Map.of("temperature_f", 72.0)));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("ToolCallCompleted");
+    }
+
+    @Test
+    void sendAgentEventAudioStreamStartSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.AudioStreamStartEvent(
+                        "s1", "opus", 16000));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("AudioStreamStart");
+    }
+
+    @Test
+    void sendAgentEventAudioStreamEndSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.AudioStreamEndEvent(
+                        "s1", "normal"));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("AudioStreamEnd");
+    }
+
+    @Test
+    void serializeEventAudioChunkReturnsNull() throws Exception {
+        String result =
+                handler.serializeEvent(
+                        new com.pairion.agent.session.AgentSessionEvent.AudioChunkEvent(
+                                new byte[] {1, 2}));
+        assertThat(result).isNull();
     }
 }

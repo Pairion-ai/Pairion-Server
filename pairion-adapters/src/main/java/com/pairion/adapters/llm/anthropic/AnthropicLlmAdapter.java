@@ -87,6 +87,7 @@ public class AnthropicLlmAdapter implements LlmAdapter {
                 request.systemPrompt(),
                 request.userMessage(),
                 request.toolDefinitions(),
+                request.toolCallHistory(),
                 new AnthropicClientWrapper.StreamCallback() {
                     private boolean firstTokenLogged = false;
                     private int tokenCount = 0;
@@ -101,6 +102,19 @@ public class AnthropicLlmAdapter implements LlmAdapter {
                         }
                         tokenCount++;
                         eventConsumer.accept(new LlmEvent.TokenDelta(delta));
+                    }
+
+                    @Override
+                    public void onToolCallRequest(
+                            String toolCallId,
+                            String toolName,
+                            java.util.Map<String, Object> input) {
+                        log.info(
+                                "llm.tool_call: id={}, tool={}, sessionId={}",
+                                toolCallId,
+                                toolName,
+                                sessionId);
+                        eventConsumer.accept(new LlmEvent.ToolCallRequest(toolCallId, toolName, input));
                     }
 
                     @Override

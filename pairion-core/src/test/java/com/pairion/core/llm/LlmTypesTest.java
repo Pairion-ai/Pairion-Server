@@ -22,7 +22,8 @@ class LlmTypesTest {
     void llmRequestFull() {
         ToolDefinition tool =
                 new ToolDefinition("weather", "Gets weather", Map.of("type", "object"));
-        LlmRequest req = new LlmRequest("sys", "msg", List.of(tool), "claude-sonnet-4-6-20250514");
+        LlmRequest req =
+                new LlmRequest("sys", "msg", List.of(tool), "claude-sonnet-4-6-20250514", List.of());
         assertThat(req.model()).isEqualTo("claude-sonnet-4-6-20250514");
         assertThat(req.toolDefinitions()).hasSize(1);
         assertThat(req.toolDefinitions().get(0).name()).isEqualTo("weather");
@@ -79,5 +80,32 @@ class LlmTypesTest {
         assertThat(caps.available()).isFalse();
         assertThat(caps.supportsToolUse()).isFalse();
         assertThat(caps.supportsStreaming()).isFalse();
+    }
+
+    @Test
+    void toolCallPairFields() {
+        LlmRequest.ToolCallPair pair =
+                new LlmRequest.ToolCallPair(
+                        "tc-1",
+                        "get_current_weather",
+                        Map.of("city", "Dallas"),
+                        Map.of("temperature_f", 72.0));
+        assertThat(pair.toolCallId()).isEqualTo("tc-1");
+        assertThat(pair.toolName()).isEqualTo("get_current_weather");
+        assertThat(pair.toolInput()).containsEntry("city", "Dallas");
+        assertThat(pair.toolOutput()).containsEntry("temperature_f", 72.0);
+    }
+
+    @Test
+    void llmRequestToolCallHistory() {
+        LlmRequest.ToolCallPair pair =
+                new LlmRequest.ToolCallPair("tc-2", "calc", Map.of(), Map.of("result", 42));
+        LlmRequest req = LlmRequest.simple("sys", "hi");
+        assertThat(req.toolCallHistory()).isEmpty();
+
+        LlmRequest reqWithHistory =
+                new LlmRequest("sys", "follow-up", List.of(), null, List.of(pair));
+        assertThat(reqWithHistory.toolCallHistory()).hasSize(1);
+        assertThat(reqWithHistory.toolCallHistory().get(0).toolName()).isEqualTo("calc");
     }
 }

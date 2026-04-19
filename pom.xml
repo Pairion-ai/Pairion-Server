@@ -20,6 +20,7 @@
 
     <modules>
         <module>pairion-native-whisper</module>
+        <module>pairion-native-piper</module>
         <module>pairion-core</module>
         <module>pairion-adapters</module>
         <module>pairion-household</module>
@@ -46,6 +47,11 @@
             <dependency>
                 <groupId>com.pairion</groupId>
                 <artifactId>pairion-native-whisper</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.pairion</groupId>
+                <artifactId>pairion-native-piper</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -202,6 +208,22 @@
                                 <!-- DefaultAnthropicClientWrapper: creates real OkHttp client
                                      requiring a valid API key. Unit-tested via mock boundary. -->
                                 <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper.class</exclude>
+                                <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper$*.class</exclude>
+                                <!-- DefaultPiperTtsNative: loads real native library from classpath.
+                                     Unit-tested via LibraryLoader injection; PAIRION_NATIVE_TESTS
+                                     covers the production path. -->
+                                <exclude>com/pairion/adapters/tts/piper/DefaultPiperTtsNative.class</exclude>
+                                <exclude>com/pairion/adapters/tts/piper/DefaultPiperTtsNative$*.class</exclude>
+                                <!-- jextract-generated Piper bindings: auto-generated, not testable
+                                     without native library. -->
+                                <exclude>com/pairion/nativelib/piper/*.class</exclude>
+                                <!-- OpusEncoder.create(): catch(OpusException) wraps a checked
+                                     exception that Concentus empirically never throws. -->
+                                <exclude>com/pairion/adapters/audio/opus/OpusEncoder.class</exclude>
+                                <!-- ConcentusOpusEncoder.encodeFrame(): catch(OpusException) wraps
+                                     a checked exception that Concentus never throws for valid PCM.
+                                     Happy path, getSampleRate, and reset are tested directly. -->
+                                <exclude>com/pairion/adapters/audio/opus/ConcentusOpusEncoder.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

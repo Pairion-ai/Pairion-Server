@@ -23,6 +23,10 @@
             <groupId>com.pairion</groupId>
             <artifactId>pairion-native-whisper</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.pairion</groupId>
+            <artifactId>pairion-native-piper</artifactId>
+        </dependency>
         <!-- Anthropic Java SDK — vendor SDK; imports restricted to llm.anthropic package -->
         <dependency>
             <groupId>com.anthropic</groupId>

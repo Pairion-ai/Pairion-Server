@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.pairion</groupId>
+        <artifactId>pairion-server</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pairion-native-piper</artifactId>
+    <name>Pairion Native Piper</name>
+    <description>Builds Piper TTS from source via CMake, generates FFM bindings via jextract, packages native library and espeak-ng-data as classpath resources</description>
+
+    <properties>
+        <piper.tag>2023.11.14-2</piper.tag>
+        <piper.src>${project.build.directory}/piper-src</piper.src>
+        <piper.build>${project.build.directory}/piper-build</piper.build>
+        <jextract.version>21-jextract+1-2</jextract.version>
+        <jextract.home>${user.home}/.pairion/tools/jextract-21</jextract.home>
+    </properties>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <!-- Phase: initialize — clone piper, build with CMake -->
+                    <execution>
+                        <id>clone-and-build-piper</id>
+                        <phase>initialize</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>
+                                    set -e
+                                    # Clone piper
+                                    if [ ! -d "${piper.src}/.git" ]; then
+                                        git clone --depth 1 --branch ${piper.tag} \
+                                            https://github.com/rhasspy/piper.git "${piper.src}"
+                                    fi
+                                    # Copy C wrapper into piper source tree
+                                    cp "${project.basedir}/src/main/native/piper_jni.h" "${piper.src}/src/cpp/piper_jni.h"
+                                    cp "${project.basedir}/src/main/native/piper_jni.cpp" "${piper.src}/src/cpp/piper_jni.cpp"
+                                    # Build piper (shared library)
+                                    cmake -B "${piper.build}" \
+                                        -S "${piper.src}" \
+                                        -DBUILD_SHARED_LIBS=ON \
+                                        -DCMAKE_BUILD_TYPE=Release
+                                    cmake --build "${piper.build}" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+                                    # Copy libpiper.dylib (macOS) or libpiper.so (Linux) to classpath
+                                    PLATFORM=$(uname -s)-$(uname -m)
+                                    case "$PLATFORM" in
+                                        Darwin-arm64) PLAT_DIR="darwin-aarch64" ;;
+                                        Darwin-x86_64) PLAT_DIR="darwin-x86_64" ;;
+                                        Linux-x86_64) PLAT_DIR="linux-x86_64" ;;
+                                        Linux-aarch64) PLAT_DIR="linux-aarch64" ;;
+                                        *) PLAT_DIR="unknown" ;;
+                                    esac
+                                    DEST="${project.build.outputDirectory}/native/${PLAT_DIR}"
+                                    mkdir -p "${DEST}"
+                                    LIB=$(find "${piper.build}" \( -name 'libpiper.dylib' -o -name 'libpiper.so' \) -not -type l 2>/dev/null | head -1)
+                                    if [ -n "$LIB" ]; then
+                                        cp "$LIB" "${DEST}/libpiper${LIB##*.libpiper}"
+                                        echo "Piper native library copied to ${DEST}"
+                                    else
+                                        echo "WARN: libpiper not found in build output — skipping"
+                                    fi
+                                    # Copy espeak-ng-data if present
+                                    ESPEAK_DATA=$(find "${piper.build}" -name "espeak-ng-data" -type d 2>/dev/null | head -1)
+                                    if [ -n "$ESPEAK_DATA" ]; then
+                                        mkdir -p "${project.build.outputDirectory}/espeak-ng-data"
+                                        cp -r "$ESPEAK_DATA/." "${project.build.outputDirectory}/espeak-ng-data/"
+                                        echo "espeak-ng-data copied"
+                                    else
+                                        echo "WARN: espeak-ng-data not found — voice synthesis will require external data path"
+                                    fi
+                                </argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Phase: generate-sources — jextract bindings from piper_jni.h -->
+                    <execution>
+                        <id>jextract-piper-bindings</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>bash</executable>
+                            <arguments>
+                                <argument>-c</argument>
+                                <argument>
+                                    JEXTRACT="${jextract.home}/bin/jextract"
+                                    if [ ! -x "$JEXTRACT" ]; then
+                                        echo "WARN: jextract not installed at ${jextract.home} — skipping Piper binding generation"
+                                        exit 0
+                                    fi
+                                    HEADER="${project.basedir}/src/main/native/piper_jni.h"
+                                    if [ ! -f "$HEADER" ]; then
+                                        echo "WARN: piper_jni.h not found — skipping jextract"
+                                        exit 0
+                                    fi
+                                    OUT="${project.build.directory}/generated-sources/jextract"
+                                    rm -rf "$OUT"
+                                    "$JEXTRACT" \
+                                        --source \
+                                        --output "$OUT" \
+                                        --target-package com.pairion.nativelib.piper \
+                                        --header-class-name PiperBindings \
+                                        --include-function piper_initialize \
+                                        --include-function piper_load_voice \
+                                        --include-function piper_synthesize \
+                                        --include-function piper_free_voice \
+                                        --include-function piper_terminate \
+                                        "$HEADER"
+                                    echo "Piper jextract bindings generated to $OUT"
+                                </argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>add-piper-jextract-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>add-source</goal></goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.build.directory}/generated-sources/jextract</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
