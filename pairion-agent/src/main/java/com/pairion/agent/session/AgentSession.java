@@ -7,7 +7,10 @@ import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
 import com.pairion.core.llm.LlmRequest;
+import com.pairion.core.llm.ToolDefinition;
 import com.pairion.core.stt.SttEvent;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -140,10 +143,10 @@ public class AgentSession {
                 log.info("llm.complete: output_tokens={}", stop.outputTokens());
                 transitionState(AgentState.IDLE);
             }
-            case LlmEvent.ToolCallRequest ignored ->
-                    log.debug("Tool call request received (not handled in PS-002)");
-            case LlmEvent.ToolCallResult ignored ->
-                    log.debug("Tool call result received (not handled in PS-002)");
+            case LlmEvent.ToolCallRequest req ->
+                    log.info("Tool call: id={} name={} input={}", req.toolCallId(), req.toolName(), req.input());
+            case LlmEvent.ToolCallResult res ->
+                    log.info("Tool result: id={} output={}", res.toolCallId(), res.output());
         }
     }
 
@@ -151,7 +154,19 @@ public class AgentSession {
         transitionState(AgentState.THINKING);
 
         String systemPrompt = soulProvider.getSystemPrompt(sessionId);
-        LlmRequest request = LlmRequest.simple(systemPrompt, transcript);
+        ToolDefinition weatherTool = new ToolDefinition(
+            "get_current_weather",
+            "Get current real-time weather for a city or location. Always use this for weather questions. Returns temperature, conditions, wind.",
+            Map.of(
+                "type", "object",
+                "properties", Map.of(
+                    "city", Map.of("type", "string", "description", "City name, e.g. Dallas")
+                ),
+                "required", List.of("city")
+            )
+        );
+        LlmRequest request = new LlmRequest(systemPrompt, transcript, List.of(weatherTool), null);
+
 
         llmAdapter.generate(request, this::handleLlmEvent);
     }

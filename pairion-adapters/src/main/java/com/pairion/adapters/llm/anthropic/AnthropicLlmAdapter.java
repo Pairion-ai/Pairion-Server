@@ -39,7 +39,7 @@ public class AnthropicLlmAdapter implements LlmAdapter {
      */
     public AnthropicLlmAdapter(
             AnthropicClientWrapper clientWrapper,
-            @Value("${pairion.adapters.llm.anthropic.model:claude-sonnet-4-6-20250514}")
+            @Value("${pairion.adapters.llm.anthropic.model:claude-sonnet-4-6}")
                     String defaultModel) {
         this.clientWrapper = clientWrapper;
         this.defaultModel = defaultModel;
