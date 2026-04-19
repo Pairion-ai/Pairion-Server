@@ -36,9 +36,9 @@ public class ModelDownloader {
         this.httpClient = httpClient;
     }
 
-    /** Constructs the downloader with a default HTTP client. */
+    /** Constructs the downloader with a default HTTP client that follows redirects. */
     public ModelDownloader() {
-        this(HttpClient.newHttpClient());
+        this(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build());
     }
 
     /**
