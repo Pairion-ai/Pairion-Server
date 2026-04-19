@@ -16,6 +16,7 @@
 
     <properties>
         <piper.tag>2023.11.14-2</piper.tag>
+        <piper.sha>38917ffd8c0e219c6581d73e07b30ef1d572fce1</piper.sha>
         <piper.src>${project.build.directory}/piper-src</piper.src>
         <piper.build>${project.build.directory}/piper-build</piper.build>
         <jextract.version>21-jextract+1-2</jextract.version>
@@ -29,7 +30,8 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <executions>
-                    <!-- Phase: initialize — clone piper, build with CMake -->
+
+                    <!-- Phase: initialize — clone piper, patch CMakeLists.txt, build shared lib -->
                     <execution>
                         <id>clone-and-build-piper</id>
                         <phase>initialize</phase>
@@ -39,53 +41,155 @@
                             <arguments>
                                 <argument>-c</argument>
                                 <argument>
-                                    set -e
-                                    # Clone piper
-                                    if [ ! -d "${piper.src}/.git" ]; then
-                                        git clone --depth 1 --branch ${piper.tag} \
-                                            https://github.com/rhasspy/piper.git "${piper.src}"
-                                    fi
-                                    # Copy C wrapper into piper source tree
-                                    cp "${project.basedir}/src/main/native/piper_jni.h" "${piper.src}/src/cpp/piper_jni.h"
-                                    cp "${project.basedir}/src/main/native/piper_jni.cpp" "${piper.src}/src/cpp/piper_jni.cpp"
-                                    # Build piper (shared library)
-                                    cmake -B "${piper.build}" \
-                                        -S "${piper.src}" \
-                                        -DBUILD_SHARED_LIBS=ON \
-                                        -DCMAKE_BUILD_TYPE=Release
-                                    cmake --build "${piper.build}" --config Release -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
-                                    # Copy libpiper.dylib (macOS) or libpiper.so (Linux) to classpath
-                                    PLATFORM=$(uname -s)-$(uname -m)
-                                    case "$PLATFORM" in
-                                        Darwin-arm64) PLAT_DIR="darwin-aarch64" ;;
-                                        Darwin-x86_64) PLAT_DIR="darwin-x86_64" ;;
-                                        Linux-x86_64) PLAT_DIR="linux-x86_64" ;;
-                                        Linux-aarch64) PLAT_DIR="linux-aarch64" ;;
-                                        *) PLAT_DIR="unknown" ;;
-                                    esac
-                                    DEST="${project.build.outputDirectory}/native/${PLAT_DIR}"
-                                    mkdir -p "${DEST}"
-                                    LIB=$(find "${piper.build}" \( -name 'libpiper.dylib' -o -name 'libpiper.so' \) -not -type l 2>/dev/null | head -1)
-                                    if [ -n "$LIB" ]; then
-                                        cp "$LIB" "${DEST}/libpiper${LIB##*.libpiper}"
-                                        echo "Piper native library copied to ${DEST}"
-                                    else
-                                        echo "WARN: libpiper not found in build output — skipping"
-                                    fi
-                                    # Copy espeak-ng-data if present
-                                    ESPEAK_DATA=$(find "${piper.build}" -name "espeak-ng-data" -type d 2>/dev/null | head -1)
-                                    if [ -n "$ESPEAK_DATA" ]; then
-                                        mkdir -p "${project.build.outputDirectory}/espeak-ng-data"
-                                        cp -r "$ESPEAK_DATA/." "${project.build.outputDirectory}/espeak-ng-data/"
-                                        echo "espeak-ng-data copied"
-                                    else
-                                        echo "WARN: espeak-ng-data not found — voice synthesis will require external data path"
-                                    fi
+set -e
+
+PIPER_SRC="${piper.src}"
+PIPER_BUILD="${piper.build}"
+NATIVE_SOURCES="${project.basedir}/src/main/native"
+CMAKE_PATCH="${project.basedir}/src/main/cmake/piper_shared_append.cmake"
+
+# ── 1. Clone piper if not already present ────────────────────────────────────
+if [ ! -d "${PIPER_SRC}/.git" ]; then
+    git clone --recurse-submodules --depth 1 \
+        --branch ${piper.tag} \
+        https://github.com/rhasspy/piper.git "${PIPER_SRC}"
+    echo "Cloned piper ${piper.tag}"
+else
+    echo "Piper source already present at ${PIPER_SRC}"
+fi
+
+# ── 2. Copy C wrapper files ────────────────────────────────────────────────────
+cp "${NATIVE_SOURCES}/piper_c.h"   "${PIPER_SRC}/src/cpp/piper_c.h"
+cp "${NATIVE_SOURCES}/piper_c.cpp" "${PIPER_SRC}/src/cpp/piper_c.cpp"
+echo "C wrapper files copied to ${PIPER_SRC}/src/cpp/"
+
+# ── 3. Patch CMakeLists.txt (idempotent) ──────────────────────────────────────
+if ! grep -q "piper_shared" "${PIPER_SRC}/CMakeLists.txt"; then
+    cat "${CMAKE_PATCH}" >> "${PIPER_SRC}/CMakeLists.txt"
+    echo "Patched CMakeLists.txt with piper_shared target"
+else
+    echo "CMakeLists.txt already patched"
+fi
+
+# ── 4. CMake configure ────────────────────────────────────────────────────────
+cmake -B "${PIPER_BUILD}" \
+      -S "${PIPER_SRC}" \
+      -DCMAKE_BUILD_TYPE=Release
+echo "CMake configured"
+
+# ── 5. Build piper_shared target ──────────────────────────────────────────────
+NCPU=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+cmake --build "${PIPER_BUILD}" \
+      --config Release \
+      --target piper_shared \
+      -j${NCPU}
+echo "piper_shared target built"
+
+# ── 6. Locate the built library ───────────────────────────────────────────────
+PIPER_LIB=$(find "${PIPER_BUILD}" \
+    \( -name 'libpiper.dylib' -o -name 'libpiper.so' \) \
+    -not -type l \
+    -not -path '*/dSYM/*' \
+    2>/dev/null | head -1)
+
+if [ -z "${PIPER_LIB}" ]; then
+    echo "ERROR: libpiper shared library not found in ${PIPER_BUILD}"
+    exit 1
+fi
+echo "Found piper library: ${PIPER_LIB}"
+
+# ── 7. Determine target platform directory ────────────────────────────────────
+UNAME_S=$(uname -s)
+UNAME_M=$(uname -m)
+case "${UNAME_S}-${UNAME_M}" in
+    Darwin-arm64)   PLAT_DIR="darwin-aarch64" ;;
+    Darwin-x86_64)  PLAT_DIR="darwin-x86_64"  ;;
+    Linux-x86_64)   PLAT_DIR="linux-x86_64"   ;;
+    Linux-aarch64)  PLAT_DIR="linux-aarch64"  ;;
+    *)              PLAT_DIR="unknown"          ;;
+esac
+
+DEST="${project.build.outputDirectory}/native/${PLAT_DIR}"
+mkdir -p "${DEST}"
+
+# Installed phonemize libs live in ${PIPER_BUILD}/pi/lib/
+PHONEMIZE_LIB_DIR="${PIPER_BUILD}/pi/lib"
+
+# ── 8. Copy dylibs with canonical SONAME filenames ────────────────────────────
+if [ "${UNAME_S}" = "Darwin" ]; then
+    # Copy real files (not symlinks) and rename to the SONAME expected by @rpath refs
+    cp "${PHONEMIZE_LIB_DIR}/libonnxruntime.1.14.1.dylib" \
+       "${DEST}/libonnxruntime.1.14.1.dylib"
+    cp "${PHONEMIZE_LIB_DIR}/libespeak-ng.1.52.0.1.dylib" \
+       "${DEST}/libespeak-ng.1.dylib"
+    cp "${PHONEMIZE_LIB_DIR}/libpiper_phonemize.1.2.0.dylib" \
+       "${DEST}/libpiper_phonemize.1.dylib"
+    cp "${PIPER_LIB}" "${DEST}/libpiper.dylib"
+
+    echo "Copied dylibs to ${DEST}"
+
+    # ── 9. Fix install IDs to plain filenames ─────────────────────────────────
+    install_name_tool -id "libonnxruntime.1.14.1.dylib" \
+        "${DEST}/libonnxruntime.1.14.1.dylib"
+    install_name_tool -id "libespeak-ng.1.dylib" \
+        "${DEST}/libespeak-ng.1.dylib"
+    install_name_tool -id "libpiper_phonemize.1.dylib" \
+        "${DEST}/libpiper_phonemize.1.dylib"
+    install_name_tool -id "libpiper.dylib" \
+        "${DEST}/libpiper.dylib"
+
+    # ── 10. Fix libpiper_phonemize: replace absolute rpaths with @loader_path ─
+    for RPATH in $(otool -l "${DEST}/libpiper_phonemize.1.dylib" \
+                     | grep -A2 LC_RPATH | grep "path " | awk '{print $2}'); do
+        install_name_tool -delete_rpath "$RPATH" \
+            "${DEST}/libpiper_phonemize.1.dylib" 2>/dev/null || true
+    done
+    install_name_tool -add_rpath "@loader_path" \
+        "${DEST}/libpiper_phonemize.1.dylib"
+
+    # ── 11. Fix libpiper: remove absolute rpaths, ensure @loader_path is set ──
+    for RPATH in $(otool -l "${DEST}/libpiper.dylib" \
+                     | grep -A2 LC_RPATH | grep "path " \
+                     | grep -v "@loader_path" | awk '{print $2}'); do
+        install_name_tool -delete_rpath "$RPATH" \
+            "${DEST}/libpiper.dylib" 2>/dev/null || true
+    done
+    # Add @loader_path rpath so @rpath/libX.dylib deps resolve to the same dir
+    install_name_tool -add_rpath "@loader_path" \
+        "${DEST}/libpiper.dylib" 2>/dev/null || true
+
+    echo "Fixed dylib install names and rpaths"
+
+elif [ "${UNAME_S}" = "Linux" ]; then
+    cp "${PIPER_LIB}" "${DEST}/libpiper.so"
+    # Locate and copy Linux .so dependencies
+    PHONEMIZE_SO=$(find "${PHONEMIZE_LIB_DIR}" -name 'libpiper_phonemize.so' -o \
+                                                -name 'libpiper_phonemize.so.1' 2>/dev/null | head -1)
+    [ -n "${PHONEMIZE_SO}" ] &amp;&amp; cp "${PHONEMIZE_SO}" "${DEST}/"
+    ESPEAK_SO=$(find "${PHONEMIZE_LIB_DIR}" -name 'libespeak-ng.so.1' 2>/dev/null | head -1)
+    [ -n "${ESPEAK_SO}" ] &amp;&amp; cp "${ESPEAK_SO}" "${DEST}/"
+    ONNX_SO=$(find "${PHONEMIZE_LIB_DIR}" -name 'libonnxruntime.so*' -not -type l 2>/dev/null | head -1)
+    [ -n "${ONNX_SO}" ] &amp;&amp; cp "${ONNX_SO}" "${DEST}/"
+    echo "Copied Linux .so files to ${DEST}"
+fi
+
+# ── 12. Bundle espeak-ng-data ─────────────────────────────────────────────────
+ESPEAK_DATA="${PIPER_BUILD}/pi/share/espeak-ng-data"
+if [ -d "${ESPEAK_DATA}" ]; then
+    mkdir -p "${project.build.outputDirectory}/espeak-ng-data"
+    cp -r "${ESPEAK_DATA}/." "${project.build.outputDirectory}/espeak-ng-data/"
+    echo "espeak-ng-data copied to ${project.build.outputDirectory}/espeak-ng-data/"
+else
+    echo "WARN: espeak-ng-data not found at ${ESPEAK_DATA}"
+fi
+
+echo "Piper native build complete"
                                 </argument>
                             </arguments>
                         </configuration>
                     </execution>
-                    <!-- Phase: generate-sources — jextract bindings from piper_jni.h -->
+
+                    <!-- Phase: generate-sources — jextract bindings from piper_c.h -->
                     <execution>
                         <id>jextract-piper-bindings</id>
                         <phase>generate-sources</phase>
@@ -95,36 +199,38 @@
                             <arguments>
                                 <argument>-c</argument>
                                 <argument>
-                                    JEXTRACT="${jextract.home}/bin/jextract"
-                                    if [ ! -x "$JEXTRACT" ]; then
-                                        echo "WARN: jextract not installed at ${jextract.home} — skipping Piper binding generation"
-                                        exit 0
-                                    fi
-                                    HEADER="${project.basedir}/src/main/native/piper_jni.h"
-                                    if [ ! -f "$HEADER" ]; then
-                                        echo "WARN: piper_jni.h not found — skipping jextract"
-                                        exit 0
-                                    fi
-                                    OUT="${project.build.directory}/generated-sources/jextract"
-                                    rm -rf "$OUT"
-                                    "$JEXTRACT" \
-                                        --source \
-                                        --output "$OUT" \
-                                        --target-package com.pairion.nativelib.piper \
-                                        --header-class-name PiperBindings \
-                                        --include-function piper_initialize \
-                                        --include-function piper_load_voice \
-                                        --include-function piper_synthesize \
-                                        --include-function piper_free_voice \
-                                        --include-function piper_terminate \
-                                        "$HEADER"
-                                    echo "Piper jextract bindings generated to $OUT"
+JEXTRACT="${jextract.home}/bin/jextract"
+if [ ! -x "$JEXTRACT" ]; then
+    echo "WARN: jextract not installed at ${jextract.home} — skipping Piper binding generation"
+    exit 0
+fi
+HEADER="${project.basedir}/src/main/native/piper_c.h"
+if [ ! -f "$HEADER" ]; then
+    echo "WARN: piper_c.h not found — skipping jextract"
+    exit 0
+fi
+OUT="${project.build.directory}/generated-sources/jextract"
+rm -rf "$OUT"
+"$JEXTRACT" \
+    --source \
+    --output "$OUT" \
+    --target-package com.pairion.nativelib.piper \
+    --header-class-name PiperBindings \
+    --include-function piper_initialize \
+    --include-function piper_load_voice \
+    --include-function piper_synthesize \
+    --include-function piper_free_voice \
+    --include-function piper_terminate \
+    "$HEADER"
+echo "Piper jextract bindings generated to $OUT"
                                 </argument>
                             </arguments>
                         </configuration>
                     </execution>
+
                 </executions>
             </plugin>
+
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>

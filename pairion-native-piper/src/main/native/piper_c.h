@@ -1,17 +1,17 @@
 /**
- * piper_jni.h — C wrapper around the Piper TTS C++ API.
+ * piper_c.h — C wrapper around the Piper TTS C++ API.
  *
  * Provides a flat C API suitable for jextract FFM binding generation.
  * All functions use extern "C" linkage and opaque handles to avoid C++ ABI
  * dependencies in the generated Java bindings.
  *
  * Build: compiled as part of the piper source tree via CMake. The wrapper
- * implementation (piper_jni.cpp) includes piper.hpp and routes calls through
+ * implementation (piper_c.cpp) includes piper.hpp and routes calls through
  * the piper:: namespace.
  */
 
-#ifndef PIPER_JNI_H
-#define PIPER_JNI_H
+#ifndef PIPER_C_H
+#define PIPER_C_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -92,4 +92,4 @@ void piper_terminate(void);
 }
 #endif
 
-#endif /* PIPER_JNI_H */
+#endif /* PIPER_C_H */

@@ -1,5 +1,5 @@
 /**
- * piper_jni.cpp — C wrapper implementation for the Piper TTS C++ API.
+ * piper_c.cpp — C wrapper implementation for the Piper TTS C++ API.
  *
  * Routes calls through the piper:: namespace. Compiled as part of the Piper
  * source tree so that it links against the same piper C++ translation units
@@ -10,7 +10,7 @@
  * threads if each call uses a different voice_handle.
  */
 
-#include "piper_jni.h"
+#include "piper_c.h"
 
 #include <cassert>
 #include <memory>
@@ -51,8 +51,7 @@ piper_voice_handle_t piper_load_voice(
             std::string(model_path),
             std::string(model_config_path),
             *voice,
-            speakerId,
-            false /* useCuda */);
+            speakerId);
         return static_cast<piper_voice_handle_t>(voice);
     } catch (...) {
         return nullptr;
