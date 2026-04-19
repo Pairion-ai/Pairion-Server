@@ -20,4 +20,39 @@ class SoulPromptProviderTest {
         DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
         assertThat(provider.getSystemPrompt("s1")).isEqualTo(provider.getSystemPrompt("s2"));
     }
+
+    @Test
+    void promptInstructsNoMarkdown() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1").toLowerCase();
+        assertThat(prompt).contains("never use markdown");
+    }
+
+    @Test
+    void promptInstructsConciseResponses() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1").toLowerCase();
+        assertThat(prompt).contains("concise");
+    }
+
+    @Test
+    void promptInstructsNoReasoningNarration() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1").toLowerCase();
+        assertThat(prompt).contains("answer directly");
+    }
+
+    @Test
+    void promptInstructsPlainNumbersNotSymbols() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1").toLowerCase();
+        assertThat(prompt).contains("plain numbers");
+    }
+
+    @Test
+    void promptInstructsTtsAwareness() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1").toLowerCase();
+        assertThat(prompt).contains("text-to-speech");
+    }
 }

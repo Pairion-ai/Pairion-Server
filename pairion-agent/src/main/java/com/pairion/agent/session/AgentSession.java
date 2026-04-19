@@ -6,6 +6,7 @@ import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.agent.tools.ToolDispatcher;
+import com.pairion.agent.util.MarkdownStripper;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
 import com.pairion.core.llm.LlmRequest;
@@ -205,8 +206,8 @@ public class AgentSession {
             }
         }
 
-        // TTS: synthesize the accumulated response text
-        String text = responseText.toString().trim();
+        // TTS: strip markdown and synthesize the accumulated response text
+        String text = MarkdownStripper.strip(responseText.toString());
         if (!text.isEmpty() && ttsAdapter.capabilities().available()) {
             synthesizeSpeech(text);
         } else {
