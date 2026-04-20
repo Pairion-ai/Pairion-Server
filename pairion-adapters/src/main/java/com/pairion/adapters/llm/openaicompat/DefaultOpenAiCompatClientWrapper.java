@@ -3,6 +3,7 @@ package com.pairion.adapters.llm.openaicompat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pairion.core.llm.LlmRequest;
 import com.pairion.core.llm.ToolDefinition;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URI;
@@ -61,6 +62,7 @@ public class DefaultOpenAiCompatClientWrapper implements OpenAiCompatClientWrapp
      * @param connectTimeoutSeconds seconds to wait for a TCP connection to be established
      * @param requestTimeoutSeconds seconds to wait for the HTTP response headers to arrive
      */
+    @Autowired
     public DefaultOpenAiCompatClientWrapper(
             @Value("${pairion.adapters.openaicompat.connectTimeoutSeconds:10}")
                     int connectTimeoutSeconds,
@@ -68,6 +70,7 @@ public class DefaultOpenAiCompatClientWrapper implements OpenAiCompatClientWrapp
                     int requestTimeoutSeconds) {
         this(
                 HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
                         .followRedirects(HttpClient.Redirect.ALWAYS)
                         .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
                         .build(),

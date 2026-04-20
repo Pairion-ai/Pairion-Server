@@ -58,7 +58,6 @@ public class DefaultAnthropicClientWrapper implements AnthropicClientWrapper {
         } else {
             this.client = null;
             this.available = false;
-            log.warn("ANTHROPIC_API_KEY not set — Anthropic LLM adapter unavailable");
         }
         this.objectMapper = new ObjectMapper();
     }
