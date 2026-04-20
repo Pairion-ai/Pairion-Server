@@ -21,7 +21,7 @@ pairion:
     # ── OpenAI-compatible adapter (active when llm=openaicompat) ────────────
     openaicompat:
       baseUrl: http://localhost:1234/v1   # LM Studio default port
-      model: google/gemma-4-26b-a4b      # model id from GET /v1/models
+      model: glm-4.7-flash                # model id from GET /v1/models
       apiKey:                             # blank — LM Studio requires no API key
 
     # ── Anthropic adapter (restore by setting llm=anthropic above) ──────────
