@@ -36,6 +36,19 @@ import org.slf4j.MDC;
  *   <li>LLM text response → TTS synthesis → Opus encode → emit AudioStreamStart/Chunks/End
  *   <li>Emit AgentStateChange(idle)
  * </ol>
+ *
+ * <p>Each stage of the turn loop is instrumented with wall-clock latency logging using
+ * {@code System.nanoTime()}. Log lines are prefixed with {@code [LATENCY]} for grep-friendly
+ * extraction. Stage definitions:
+ * <ul>
+ *   <li>A (STT): SpeechEnded → SttEvent.Final received</li>
+ *   <li>B (LLM-1): first LLM generate() call</li>
+ *   <li>C (Tool): tool dispatch (cumulative across rounds; omitted when no tool used)</li>
+ *   <li>D (LLM-2): subsequent LLM generate() calls (cumulative; omitted when no tool used)</li>
+ *   <li>E (TTS): TTS synthesis start → synthesis complete</li>
+ *   <li>F (Send): first TTS chunk received → first binary WebSocket frame written</li>
+ *   <li>T (Total): SpeechEnded → first binary audio frame sent to client</li>
+ * </ul>
  */
 public class AgentSession {
 
@@ -55,6 +68,12 @@ public class AgentSession {
     private OpusDecoder opusDecoder;
     private SttAdapter.SttSession sttSession;
     private AgentState currentState = AgentState.IDLE;
+
+    /**
+     * Nanosecond timestamp captured at the start of {@link #onSpeechEnded()} to anchor Stage A
+     * (STT) and Stage T (Total) latency measurements. Reset at the beginning of each turn.
+     */
+    private long sttStartNano;
 
     /**
      * Constructs an agent session.
@@ -115,9 +134,13 @@ public class AgentSession {
         }
     }
 
-    /** Handles an inbound SpeechEnded message. Finalizes the STT session. */
+    /**
+     * Handles an inbound SpeechEnded message. Records the Stage A (STT) start time and finalizes
+     * the STT session.
+     */
     public void onSpeechEnded() {
         MDC.put("sessionId", sessionId);
+        sttStartNano = System.nanoTime();
         log.info("speech.ended");
         if (sttSession != null) {
             sttSession.finalizeStream();
@@ -144,30 +167,38 @@ public class AgentSession {
                     eventSink.accept(
                             new AgentSessionEvent.TranscriptPartialEvent(partial.text()));
             case SttEvent.Final finalEvent -> {
+                long stageAMs = toMs(System.nanoTime() - sttStartNano);
                 eventSink.accept(
                         new AgentSessionEvent.TranscriptFinalEvent(finalEvent.text()));
-                onTranscriptFinal(finalEvent.text());
+                onTranscriptFinal(finalEvent.text(), stageAMs);
             }
         }
     }
 
     /**
-     * Runs the full turn: multi-turn LLM tool loop followed by TTS synthesis.
+     * Runs the full turn: multi-turn LLM tool loop followed by TTS synthesis. Instruments each
+     * stage with wall-clock latency measurements.
      *
      * <p>Transitions: thinking → (tool rounds) → speaking → idle
      *
      * @param transcript the final STT transcript
+     * @param stageAMs Stage A (STT) latency in milliseconds
      */
-    private void onTranscriptFinal(String transcript) {
+    private void onTranscriptFinal(String transcript, long stageAMs) {
         transitionState(AgentState.THINKING);
 
         String systemPrompt = soulProvider.getSystemPrompt(sessionId);
         List<ToolDefinition> toolDefinitions = buildToolDefinitions();
 
-        // Multi-turn tool dispatch loop
+        // Multi-turn tool dispatch loop with per-stage latency tracking
         List<LlmRequest.ToolCallPair> toolHistory = new ArrayList<>();
         StringBuilder responseText = new StringBuilder();
         int rounds = 0;
+        boolean firstLlmRound = true;
+        long stageBMs = 0;
+        boolean hadToolCalls = false;
+        long toolAccumMs = 0;
+        long llm2AccumMs = 0;
 
         while (rounds < MAX_TOOL_ROUNDS) {
             rounds++;
@@ -181,16 +212,27 @@ public class AgentSession {
 
             List<LlmEvent.ToolCallRequest> pendingToolCalls = new ArrayList<>();
 
+            long llmRoundStart = System.nanoTime();
             llmAdapter.generate(
                     request,
                     event -> handleLlmEvent(event, responseText, pendingToolCalls));
+            long llmRoundMs = toMs(System.nanoTime() - llmRoundStart);
+
+            if (firstLlmRound) {
+                stageBMs = llmRoundMs;
+                firstLlmRound = false;
+            } else {
+                llm2AccumMs += llmRoundMs;
+            }
 
             if (pendingToolCalls.isEmpty()) {
                 // LLM finished with text — no more tool calls
                 break;
             }
 
-            // Execute each tool call and add to history
+            // Execute each tool call and accumulate dispatch time
+            hadToolCalls = true;
+            long toolRoundStart = System.nanoTime();
             for (LlmEvent.ToolCallRequest tc : pendingToolCalls) {
                 eventSink.accept(
                         new AgentSessionEvent.ToolCallStartedEvent(
@@ -204,13 +246,18 @@ public class AgentSession {
                         new LlmRequest.ToolCallPair(
                                 tc.toolCallId(), tc.toolName(), tc.input(), result));
             }
+            toolAccumMs += toMs(System.nanoTime() - toolRoundStart);
         }
+
+        long stageCMs = hadToolCalls ? toolAccumMs : -1L;
+        long stageDMs = hadToolCalls ? llm2AccumMs : -1L;
 
         // TTS: strip markdown and synthesize the accumulated response text
         String text = MarkdownStripper.strip(responseText.toString());
         if (!text.isEmpty() && ttsAdapter.capabilities().available()) {
-            synthesizeSpeech(text);
+            synthesizeSpeech(text, stageAMs, stageBMs, stageCMs, stageDMs);
         } else {
+            logPartialLatency(stageAMs, stageBMs, stageCMs, stageDMs);
             transitionState(AgentState.IDLE);
         }
     }
@@ -244,14 +291,20 @@ public class AgentSession {
     }
 
     /**
-     * Synthesizes the response text via TTS and streams Opus audio frames to the client.
+     * Synthesizes the response text via TTS, streams Opus audio frames to the client, and logs
+     * all per-stage and total latency for the completed turn.
      *
      * <p>Emits AudioStreamStart, zero or more AudioChunk binary events, then AudioStreamEnd.
      * Transitions state to SPEAKING before synthesis and back to IDLE afterward.
      *
      * @param text the text to synthesize
+     * @param stageAMs Stage A (STT) latency in milliseconds
+     * @param stageBMs Stage B (LLM-1) latency in milliseconds
+     * @param stageCMs Stage C (Tool) cumulative latency in milliseconds, or -1 if no tool used
+     * @param stageDMs Stage D (LLM-2) cumulative latency in milliseconds, or -1 if no tool used
      */
-    private void synthesizeSpeech(String text) {
+    private void synthesizeSpeech(
+            String text, long stageAMs, long stageBMs, long stageCMs, long stageDMs) {
         transitionState(AgentState.SPEAKING);
 
         String streamId = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -262,7 +315,10 @@ public class AgentSession {
                 new AgentSessionEvent.AudioStreamStartEvent(streamId, "opus", sampleRate));
         log.info("tts.stream.start: streamId={}", streamId);
 
-        long startMs = System.currentTimeMillis();
+        long ttsStartNano = System.nanoTime();
+        // Single-element arrays allow mutation from within the lambda below
+        long[] firstChunkNano = {0};
+        long[] firstSentNano = {0};
         String endReason = "normal";
 
         try {
@@ -270,9 +326,16 @@ public class AgentSession {
                     text,
                     ttsEvent -> {
                         switch (ttsEvent) {
-                            case TtsEvent.Chunk chunk ->
-                                    eventSink.accept(
-                                            new AgentSessionEvent.AudioChunkEvent(chunk.audio()));
+                            case TtsEvent.Chunk chunk -> {
+                                if (firstChunkNano[0] == 0) {
+                                    firstChunkNano[0] = System.nanoTime();
+                                }
+                                eventSink.accept(
+                                        new AgentSessionEvent.AudioChunkEvent(chunk.audio()));
+                                if (firstSentNano[0] == 0) {
+                                    firstSentNano[0] = System.nanoTime();
+                                }
+                            }
                             case TtsEvent.Completed completed ->
                                     log.info(
                                             "tts.synthesis.done: duration_ms={}",
@@ -284,10 +347,100 @@ public class AgentSession {
             endReason = "error";
         }
 
-        long totalMs = System.currentTimeMillis() - startMs;
-        log.info("tts.stream.end: streamId={}, elapsed_ms={}", streamId, totalMs);
+        long ttsEndNano = System.nanoTime();
+        long stageEMs = toMs(ttsEndNano - ttsStartNano);
+        long stageFMs = firstChunkNano[0] > 0 ? toMs(firstSentNano[0] - firstChunkNano[0]) : 0;
+        long stageTMs =
+                firstChunkNano[0] > 0
+                        ? toMs(firstSentNano[0] - sttStartNano)
+                        : toMs(ttsEndNano - sttStartNano);
+
+        log.info(
+                "tts.stream.end: streamId={}, elapsed_ms={}",
+                streamId,
+                toMs(ttsEndNano - ttsStartNano));
+        logLatency(stageAMs, stageBMs, stageCMs, stageDMs, stageEMs, stageFMs, stageTMs);
         eventSink.accept(new AgentSessionEvent.AudioStreamEndEvent(streamId, endReason));
         transitionState(AgentState.IDLE);
+    }
+
+    /**
+     * Logs per-stage and total latency for a completed agent turn (all stages including TTS).
+     *
+     * <p>Stages C and D are logged only when a tool was invoked ({@code stageCMs >= 0}). The
+     * summary line always appears last and includes all stage values so a single grep captures
+     * the full turn breakdown.
+     *
+     * @param stageAMs Stage A (STT) latency in milliseconds
+     * @param stageBMs Stage B (LLM-1) latency in milliseconds
+     * @param stageCMs Stage C (Tool) cumulative latency, or -1 if no tool was invoked
+     * @param stageDMs Stage D (LLM-2) cumulative latency, or -1 if no tool was invoked
+     * @param stageEMs Stage E (TTS) synthesis latency in milliseconds
+     * @param stageFMs Stage F (Send) first-audio-byte latency in milliseconds
+     * @param stageTMs Stage T (Total) end-to-end latency from SpeechEnded to first audio sent
+     */
+    private void logLatency(
+            long stageAMs,
+            long stageBMs,
+            long stageCMs,
+            long stageDMs,
+            long stageEMs,
+            long stageFMs,
+            long stageTMs) {
+        log.info("[LATENCY] Stage A (STT): {} ms", stageAMs);
+        log.info("[LATENCY] Stage B (LLM-1): {} ms", stageBMs);
+        if (stageCMs >= 0) {
+            log.info("[LATENCY] Stage C (Tool): {} ms", stageCMs);
+            log.info("[LATENCY] Stage D (LLM-2): {} ms", stageDMs);
+        }
+        log.info("[LATENCY] Stage E (TTS): {} ms", stageEMs);
+        log.info("[LATENCY] Stage F (Send): {} ms", stageFMs);
+
+        String stagesSummary;
+        if (stageCMs >= 0) {
+            stagesSummary =
+                    String.format(
+                            "A=%d B=%d C=%d D=%d E=%d F=%d",
+                            stageAMs, stageBMs, stageCMs, stageDMs, stageEMs, stageFMs);
+        } else {
+            stagesSummary =
+                    String.format(
+                            "A=%d B=%d C=N/A D=N/A E=%d F=%d",
+                            stageAMs, stageBMs, stageEMs, stageFMs);
+        }
+        log.info(
+                "[LATENCY] Total (SpeechEnded \u2192 FirstAudio): {} ms | Stages: {}",
+                stageTMs,
+                stagesSummary);
+    }
+
+    /**
+     * Logs partial turn latency when TTS synthesis was skipped (TTS unavailable or empty response
+     * text after markdown stripping). Stages E, F, and T are not applicable.
+     *
+     * @param stageAMs Stage A (STT) latency in milliseconds
+     * @param stageBMs Stage B (LLM-1) latency in milliseconds
+     * @param stageCMs Stage C (Tool) cumulative latency, or -1 if no tool was invoked
+     * @param stageDMs Stage D (LLM-2) cumulative latency, or -1 if no tool was invoked
+     */
+    private void logPartialLatency(
+            long stageAMs, long stageBMs, long stageCMs, long stageDMs) {
+        log.info("[LATENCY] Stage A (STT): {} ms", stageAMs);
+        log.info("[LATENCY] Stage B (LLM-1): {} ms", stageBMs);
+        if (stageCMs >= 0) {
+            log.info("[LATENCY] Stage C (Tool): {} ms", stageCMs);
+            log.info("[LATENCY] Stage D (LLM-2): {} ms", stageDMs);
+        }
+    }
+
+    /**
+     * Converts a nanosecond duration to milliseconds.
+     *
+     * @param nanos the duration in nanoseconds
+     * @return the duration in milliseconds
+     */
+    private static long toMs(long nanos) {
+        return nanos / 1_000_000L;
     }
 
     /**
@@ -316,7 +469,7 @@ public class AgentSession {
     }
 
     private void transitionState(AgentState newState) {
-        log.info("agent.state: {} → {}", currentState.wireValue(), newState.wireValue());
+        log.info("agent.state: {} \u2192 {}", currentState.wireValue(), newState.wireValue());
         currentState = newState;
         eventSink.accept(new AgentSessionEvent.StateChangeEvent(newState));
     }
