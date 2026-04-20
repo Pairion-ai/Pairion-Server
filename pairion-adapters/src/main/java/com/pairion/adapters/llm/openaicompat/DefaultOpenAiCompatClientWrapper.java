@@ -10,12 +10,14 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -31,6 +33,16 @@ import org.springframework.stereotype.Component;
  *
  * <p>This class is excluded from JaCoCo coverage because it wraps real network I/O. It is tested
  * via {@code OpenAiCompatContractTest} using an in-process {@code com.sun.net.httpserver.HttpServer}.
+ *
+ * <p>Timeout configuration:
+ * <ul>
+ *   <li>{@code pairion.adapters.openaicompat.connectTimeoutSeconds} — TCP connection timeout
+ *       (default: 10). Fires if the backend is unreachable.
+ *   <li>{@code pairion.adapters.openaicompat.requestTimeoutSeconds} — time allowed to receive the
+ *       HTTP response headers (default: 30). Fires if the backend accepts the connection but never
+ *       starts responding — e.g., while a model is still loading. Does not limit body streaming
+ *       time once the headers have been received.
+ * </ul>
  */
 @Component
 public class DefaultOpenAiCompatClientWrapper implements OpenAiCompatClientWrapper {
@@ -40,23 +52,53 @@ public class DefaultOpenAiCompatClientWrapper implements OpenAiCompatClientWrapp
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final Duration requestTimeout;
 
-    /** Constructs the wrapper with a redirect-following HTTP client and a fresh ObjectMapper. */
-    public DefaultOpenAiCompatClientWrapper() {
+    /**
+     * Production constructor. Builds an {@link HttpClient} with a TCP connect timeout and stores
+     * the per-request response-header timeout for use in {@link #streamCompletion}.
+     *
+     * @param connectTimeoutSeconds seconds to wait for a TCP connection to be established
+     * @param requestTimeoutSeconds seconds to wait for the HTTP response headers to arrive
+     */
+    public DefaultOpenAiCompatClientWrapper(
+            @Value("${pairion.adapters.openaicompat.connectTimeoutSeconds:10}")
+                    int connectTimeoutSeconds,
+            @Value("${pairion.adapters.openaicompat.requestTimeoutSeconds:30}")
+                    int requestTimeoutSeconds) {
         this(
-                HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build(),
-                new ObjectMapper());
+                HttpClient.newBuilder()
+                        .followRedirects(HttpClient.Redirect.ALWAYS)
+                        .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
+                        .build(),
+                new ObjectMapper(),
+                Duration.ofSeconds(requestTimeoutSeconds));
     }
 
     /**
-     * Package-private constructor for testing via the contract test with an injected HTTP client.
+     * Package-private constructor for testing via the contract test with an injected HTTP client
+     * and explicit timeout.
+     *
+     * @param httpClient the HTTP client to use
+     * @param objectMapper the Jackson ObjectMapper to use
+     * @param requestTimeout the per-request response-header timeout
+     */
+    DefaultOpenAiCompatClientWrapper(
+            HttpClient httpClient, ObjectMapper objectMapper, Duration requestTimeout) {
+        this.httpClient = httpClient;
+        this.objectMapper = objectMapper;
+        this.requestTimeout = requestTimeout;
+    }
+
+    /**
+     * Package-private constructor for existing contract tests that do not specify a timeout.
+     * Defaults to 30 seconds.
      *
      * @param httpClient the HTTP client to use
      * @param objectMapper the Jackson ObjectMapper to use
      */
     DefaultOpenAiCompatClientWrapper(HttpClient httpClient, ObjectMapper objectMapper) {
-        this.httpClient = httpClient;
-        this.objectMapper = objectMapper;
+        this(httpClient, objectMapper, Duration.ofSeconds(30));
     }
 
     /**
@@ -105,6 +147,7 @@ public class DefaultOpenAiCompatClientWrapper implements OpenAiCompatClientWrapp
                             .uri(URI.create(baseUrl + "/chat/completions"))
                             .header("Content-Type", "application/json")
                             .header("Accept", "text/event-stream")
+                            .timeout(requestTimeout)
                             .POST(
                                     HttpRequest.BodyPublishers.ofString(
                                             requestBody, StandardCharsets.UTF_8));

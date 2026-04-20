@@ -16,13 +16,15 @@ pairion:
     # openaicompat: local LM Studio / Ollama / any OpenAI-compatible backend
     # anthropic:    Anthropic Claude via official Java SDK (requires ANTHROPIC_API_KEY)
     # Default when this key is absent: anthropic
-    llm: anthropic
+    llm: openaicompat
 
     # ── OpenAI-compatible adapter (active when llm=openaicompat) ────────────
     openaicompat:
       baseUrl: http://localhost:1234/v1   # LM Studio default port
-      model: qwen2.5-3b-instruct          # model id from GET /v1/models
+      model: qwen2.5-14b-instruct-mlx      # model id from GET /v1/models
       apiKey:                             # blank — LM Studio requires no API key
+      connectTimeoutSeconds: 10           # TCP connection timeout
+      requestTimeoutSeconds: 30           # seconds to wait for response headers (catches model-loading hangs)
 
     # ── Anthropic adapter (active when llm=anthropic) ───────────────────────
     # Requires ANTHROPIC_API_KEY environment variable.

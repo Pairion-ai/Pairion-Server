@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -405,6 +406,63 @@ class OpenAiCompatContractTest {
         assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
         // null means the header was not present
         assertThat(capturedAuth.get()).isNull();
+    }
+
+    // ─── Request timeout ─────────────────────────────────────────────────────
+
+    @Test
+    void requestTimeoutCallsOnError() throws Exception {
+        currentHandler =
+                exchange -> {
+                    // Simulate a backend that accepts the connection but never responds
+                    // (e.g. a local model server still loading a model)
+                    try {
+                        Thread.sleep(5_000);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                };
+
+        DefaultOpenAiCompatClientWrapper wrapper =
+                new DefaultOpenAiCompatClientWrapper(
+                        HttpClient.newBuilder()
+                                .followRedirects(HttpClient.Redirect.ALWAYS)
+                                .build(),
+                        new ObjectMapper(),
+                        Duration.ofMillis(200));
+
+        AtomicReference<Exception> caughtError = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        wrapper.streamCompletion(
+                baseUrl,
+                "",
+                "test-model",
+                "sys",
+                "msg",
+                List.of(),
+                List.of(),
+                new OpenAiCompatClientWrapper.StreamCallback() {
+                    @Override
+                    public void onToken(String delta) {}
+
+                    @Override
+                    public void onToolCallRequest(String id, String name, Map<String, Object> input) {}
+
+                    @Override
+                    public void onComplete(int outputTokens) {
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        caughtError.set(e);
+                        latch.countDown();
+                    }
+                });
+
+        assertThat(latch.await(3, TimeUnit.SECONDS)).isTrue();
+        assertThat(caughtError.get()).isNotNull();
     }
 
     // ─── Tool history replayed in request body ────────────────────────────────
