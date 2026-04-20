@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pairion.core.llm.LlmRequest;
+import com.pairion.core.llm.ToolDefinition;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -539,5 +540,174 @@ class OpenAiCompatContractTest {
         assertThat(capturedBody.get()).contains("call_hist");
         assertThat(capturedBody.get()).contains("get_current_weather");
         assertThat(capturedBody.get()).contains("Austin");
+    }
+
+    // ─── Tool definitions included in request body ────────────────────────────
+
+    @Test
+    void toolDefinitionsAreIncludedInRequestBody() throws Exception {
+        AtomicReference<String> capturedBody = new AtomicReference<>();
+        currentHandler =
+                (HttpExchange exchange) -> {
+                    capturedBody.set(
+                            new String(
+                                    exchange.getRequestBody().readAllBytes(),
+                                    StandardCharsets.UTF_8));
+                    exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                    exchange.sendResponseHeaders(200, 0);
+                    try (OutputStream out = exchange.getResponseBody()) {
+                        writeSseLine(
+                                out,
+                                "data: {\"choices\":[{\"delta\":{\"content\":\"Done.\"},"
+                                        + "\"finish_reason\":null}]}");
+                        writeSseLine(
+                                out,
+                                "data: {\"choices\":[{\"delta\":{},"
+                                        + "\"finish_reason\":\"stop\"}],"
+                                        + "\"usage\":{\"completion_tokens\":1}}");
+                        writeSseLine(out, "data: [DONE]");
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                };
+
+        DefaultOpenAiCompatClientWrapper wrapper =
+                new DefaultOpenAiCompatClientWrapper(
+                        HttpClient.newBuilder()
+                                .followRedirects(HttpClient.Redirect.ALWAYS)
+                                .build(),
+                        new ObjectMapper());
+
+        List<ToolDefinition> tools =
+                List.of(
+                        new ToolDefinition(
+                                "get_current_weather",
+                                "Get the current weather for a city",
+                                Map.of(
+                                        "type",
+                                        "object",
+                                        "properties",
+                                        Map.of("city", Map.of("type", "string")),
+                                        "required",
+                                        List.of("city"))));
+
+        CountDownLatch latch = new CountDownLatch(1);
+
+        wrapper.streamCompletion(
+                baseUrl,
+                "",
+                "test-model",
+                "sys",
+                "What is the weather in Seattle?",
+                tools,
+                List.of(),
+                new OpenAiCompatClientWrapper.StreamCallback() {
+                    @Override
+                    public void onToken(String delta) {}
+
+                    @Override
+                    public void onToolCallRequest(String id, String name, Map<String, Object> input) {}
+
+                    @Override
+                    public void onComplete(int outputTokens) {
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        latch.countDown();
+                    }
+                });
+
+        assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(capturedBody.get()).contains("get_current_weather");
+        assertThat(capturedBody.get()).contains("Get the current weather for a city");
+        assertThat(capturedBody.get()).contains("\"type\":\"function\"");
+    }
+
+    // ─── Streaming: first token arrives before server closes connection ───────
+
+    /**
+     * Verifies that the client processes SSE chunks as they arrive rather than buffering the full
+     * response body. The server sends the first token chunk, then blocks waiting for the client to
+     * signal receipt before sending the remaining chunks. If the client were buffering the full
+     * body (e.g., via {@code BodyHandlers.ofString()}), this test would deadlock: the server would
+     * never send the final chunks (causing no EOF), so the client's {@code send()} would never
+     * return, and the client could never signal the server.
+     */
+    @Test
+    void streamingDeliversFirstTokenBeforeConnectionCloses() throws Exception {
+        CountDownLatch firstTokenReceived = new CountDownLatch(1);
+
+        currentHandler =
+                exchange -> {
+                    exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                    exchange.sendResponseHeaders(200, 0);
+                    try (OutputStream out = exchange.getResponseBody()) {
+                        // Send first token; client must receive this before we send the rest.
+                        writeSseLine(
+                                out,
+                                "data: {\"choices\":[{\"delta\":{\"content\":\"Hi\"},"
+                                        + "\"finish_reason\":null}]}");
+                        // Wait for the client to signal it received the first token.
+                        // With BodyHandlers.ofInputStream() the client processes chunks
+                        // as they arrive, so this signal arrives quickly. With
+                        // BodyHandlers.ofString() the client blocks in send() waiting
+                        // for EOF that will never come (deadlock → test timeout).
+                        firstTokenReceived.await(5, TimeUnit.SECONDS);
+                        // Send the stop chunk and sentinel.
+                        writeSseLine(
+                                out,
+                                "data: {\"choices\":[{\"delta\":{},"
+                                        + "\"finish_reason\":\"stop\"}],"
+                                        + "\"usage\":{\"completion_tokens\":1}}");
+                        writeSseLine(out, "data: [DONE]");
+                    } catch (IOException | InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                };
+
+        DefaultOpenAiCompatClientWrapper wrapper =
+                new DefaultOpenAiCompatClientWrapper(
+                        HttpClient.newBuilder()
+                                .followRedirects(HttpClient.Redirect.ALWAYS)
+                                .build(),
+                        new ObjectMapper());
+
+        List<String> tokens = new ArrayList<>();
+        AtomicInteger completedTokens = new AtomicInteger(-1);
+
+        wrapper.streamCompletion(
+                baseUrl,
+                "",
+                "test-model",
+                "sys",
+                "msg",
+                List.of(),
+                List.of(),
+                new OpenAiCompatClientWrapper.StreamCallback() {
+                    @Override
+                    public void onToken(String delta) {
+                        tokens.add(delta);
+                        firstTokenReceived.countDown();
+                    }
+
+                    @Override
+                    public void onToolCallRequest(String id, String name, Map<String, Object> input) {}
+
+                    @Override
+                    public void onComplete(int outputTokens) {
+                        completedTokens.set(outputTokens);
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        firstTokenReceived.countDown(); // unblock server on error path
+                    }
+                });
+
+        assertThat(firstTokenReceived.getCount()).isZero();
+        assertThat(tokens).containsExactly("Hi");
+        assertThat(completedTokens.get()).isEqualTo(1);
     }
 }

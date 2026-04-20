@@ -142,6 +142,12 @@ public class DefaultOpenAiCompatClientWrapper implements OpenAiCompatClientWrapp
             String requestBody =
                     buildRequestJson(model, systemPrompt, userMessage, tools, toolCallHistory);
 
+            log.debug(
+                    "OpenAI-compatible request: baseUrl={}, model={}, body={}",
+                    baseUrl,
+                    model,
+                    requestBody);
+
             HttpRequest.Builder requestBuilder =
                     HttpRequest.newBuilder()
                             .uri(URI.create(baseUrl + "/chat/completions"))
