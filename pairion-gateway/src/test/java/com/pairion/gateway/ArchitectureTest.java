@@ -87,4 +87,36 @@ class ArchitectureTest {
                                         + " (com.pairion.adapters.*)");
         rule.check(classes);
     }
+
+    @Test
+    void openAiCompatBoundaryEnforced() {
+        ArchRule rule =
+                ArchRuleDefinition.noClasses()
+                        .that()
+                        .resideOutsideOfPackage(
+                                "com.pairion.adapters.llm.openaicompat..")
+                        .should()
+                        .dependOnClassesThat()
+                        .haveSimpleName("DefaultOpenAiCompatClientWrapper")
+                        .because(
+                                "DefaultOpenAiCompatClientWrapper is the production HTTP boundary;"
+                                        + " all callers must go through OpenAiCompatClientWrapper");
+        rule.check(classes);
+    }
+
+    @Test
+    void openAiCompatSseParserIsolated() {
+        ArchRule rule =
+                ArchRuleDefinition.noClasses()
+                        .that()
+                        .resideOutsideOfPackage(
+                                "com.pairion.adapters.llm.openaicompat..")
+                        .should()
+                        .dependOnClassesThat()
+                        .haveSimpleName("OpenAiCompatSseParser")
+                        .because(
+                                "OpenAiCompatSseParser is a package-private implementation detail"
+                                        + " of the openaicompat adapter");
+        rule.check(classes);
+    }
 }

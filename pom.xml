@@ -209,6 +209,11 @@
                                      requiring a valid API key. Unit-tested via mock boundary. -->
                                 <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper.class</exclude>
                                 <exclude>com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper$*.class</exclude>
+                                <!-- DefaultOpenAiCompatClientWrapper: makes real HTTP calls to an
+                                     OpenAI-compatible endpoint. Contract-tested via in-process
+                                     HttpServer; unit-tested via mock boundary. -->
+                                <exclude>com/pairion/adapters/llm/openaicompat/DefaultOpenAiCompatClientWrapper.class</exclude>
+                                <exclude>com/pairion/adapters/llm/openaicompat/DefaultOpenAiCompatClientWrapper$*.class</exclude>
                                 <!-- DefaultPiperTtsNative: loads real native library from classpath.
                                      Unit-tested via LibraryLoader injection; PAIRION_NATIVE_TESTS
                                      covers the production path. -->

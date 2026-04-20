@@ -12,6 +12,14 @@ spring:
 
 pairion:
   adapters:
+    # LLM adapter selection: anthropic (default) | openaicompat
+    # llm: openaicompat
+    # OpenAI-compatible adapter — uncomment and configure when pairion.adapters.llm=openaicompat
+    # llm:
+    #   openaicompat:
+    #     baseUrl: http://localhost:1234/v1   # LM Studio / Ollama / OpenAI / etc.
+    #     model: gpt-4o-mini                 # model identifier
+    #     apiKey:                            # leave blank for local deployments
     tts:
       piper:
         voice: en_GB-alan-medium
