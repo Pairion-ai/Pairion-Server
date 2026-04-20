@@ -16,7 +16,7 @@ pairion:
     # openaicompat: local LM Studio / Ollama / any OpenAI-compatible backend
     # anthropic:    Anthropic Claude via official Java SDK (requires ANTHROPIC_API_KEY)
     # Default when this key is absent: anthropic
-    llm: openaicompat
+    llm: anthropic
 
     # ── OpenAI-compatible adapter (active when llm=openaicompat) ────────────
     openaicompat:
@@ -24,10 +24,9 @@ pairion:
       model: qwen2.5-3b-instruct          # model id from GET /v1/models
       apiKey:                             # blank — LM Studio requires no API key
 
-    # ── Anthropic adapter (restore by setting llm=anthropic above) ──────────
+    # ── Anthropic adapter (active when llm=anthropic) ───────────────────────
     # Requires ANTHROPIC_API_KEY environment variable.
-    # anthropic:
-    #   model: claude-sonnet-4-6
+    # Model defaults to claude-sonnet-4-6 (see AnthropicLlmAdapter @Value default).
 
     tts:
       piper:
