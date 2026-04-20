@@ -19,13 +19,14 @@ import org.springframework.stereotype.Component;
  * <p>Activated when {@code pairion.adapters.llm=openaicompat}. Compatible with LM Studio, Ollama,
  * OpenAI, xAI (Grok), Groq, DeepSeek, vLLM, and any other OpenAI-compatible backend.
  *
- * <p>Configuration properties:
+ * <p>Configuration properties (siblings of {@code pairion.adapters.llm} to avoid YAML key
+ * conflicts):
  * <ul>
- *   <li>{@code pairion.adapters.llm.openaicompat.baseUrl} — the API base URL (default:
+ *   <li>{@code pairion.adapters.openaicompat.baseUrl} — the API base URL (default:
  *       {@code http://localhost:1234/v1})
- *   <li>{@code pairion.adapters.llm.openaicompat.model} — the default model identifier (default:
+ *   <li>{@code pairion.adapters.openaicompat.model} — the default model identifier (default:
  *       {@code gpt-4o-mini})
- *   <li>{@code pairion.adapters.llm.openaicompat.apiKey} — the API key, empty for local
+ *   <li>{@code pairion.adapters.openaicompat.apiKey} — the API key, empty for local
  *       deployments (default: empty string)
  * </ul>
  */
@@ -50,10 +51,10 @@ public class OpenAiCompatLlmAdapter implements LlmAdapter {
      */
     public OpenAiCompatLlmAdapter(
             OpenAiCompatClientWrapper clientWrapper,
-            @Value("${pairion.adapters.llm.openaicompat.baseUrl:http://localhost:1234/v1}")
+            @Value("${pairion.adapters.openaicompat.baseUrl:http://localhost:1234/v1}")
                     String baseUrl,
-            @Value("${pairion.adapters.llm.openaicompat.model:gpt-4o-mini}") String defaultModel,
-            @Value("${pairion.adapters.llm.openaicompat.apiKey:}") String apiKey) {
+            @Value("${pairion.adapters.openaicompat.model:gpt-4o-mini}") String defaultModel,
+            @Value("${pairion.adapters.openaicompat.apiKey:}") String apiKey) {
         this.clientWrapper = clientWrapper;
         this.baseUrl = baseUrl;
         this.defaultModel = defaultModel;

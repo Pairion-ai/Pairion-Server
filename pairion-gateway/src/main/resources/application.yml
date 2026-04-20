@@ -12,14 +12,23 @@ spring:
 
 pairion:
   adapters:
-    # LLM adapter selection: anthropic (default) | openaicompat
-    # llm: openaicompat
-    # OpenAI-compatible adapter — uncomment and configure when pairion.adapters.llm=openaicompat
-    # llm:
-    #   openaicompat:
-    #     baseUrl: http://localhost:1234/v1   # LM Studio / Ollama / OpenAI / etc.
-    #     model: gpt-4o-mini                 # model identifier
-    #     apiKey:                            # leave blank for local deployments
+    # ── LLM adapter selection ────────────────────────────────────────────────
+    # openaicompat: local LM Studio / Ollama / any OpenAI-compatible backend
+    # anthropic:    Anthropic Claude via official Java SDK (requires ANTHROPIC_API_KEY)
+    # Default when this key is absent: anthropic
+    llm: openaicompat
+
+    # ── OpenAI-compatible adapter (active when llm=openaicompat) ────────────
+    openaicompat:
+      baseUrl: http://localhost:1234/v1   # LM Studio default port
+      model: google/gemma-4-26b-a4b      # model id from GET /v1/models
+      apiKey:                             # blank — LM Studio requires no API key
+
+    # ── Anthropic adapter (restore by setting llm=anthropic above) ──────────
+    # Requires ANTHROPIC_API_KEY environment variable.
+    # anthropic:
+    #   model: claude-sonnet-4-6
+
     tts:
       piper:
         voice: en_GB-alan-medium
