@@ -1,8 +1,8 @@
 # Pairion-Server — Codebase Audit
 
-**Audit Date:** 2026-04-19T17:10:00Z
+**Audit Date:** 2026-04-21T22:36:01Z
 **Branch:** main
-**Commit:** d234e200274a57731eedd8f4c19138b880d512ce fix: correct model ID, add TTS SPI, weather tool scaffolding, logging overhaul
+**Commit:** fe11ccacedae7f1047d23ac3968ec3232db41f67 feat: configurable Piper TTS speech rate via lengthScale (PS-TTS-001)
 **Auditor:** Claude Code (Automated)
 **Purpose:** Zero-context reference for AI-assisted development
 **Audit File:** Pairion-Server-Audit.md
@@ -15,649 +15,619 @@
 > changes, new features, tests, and fixes without filesystem access.
 
 ---
-## 1. Project Identity
+## Section 1: Project Identity
 
 ```
-Project Name:         Pairion Server
-Repository URL:       (local — no remote URL in config)
-Primary Language:     Java 21
-Framework:            Spring Boot 3.4.4
-Build Tool:           Maven (multi-module, parent pom)
-Current Branch:       main
-Latest Commit Hash:   d234e200274a57731eedd8f4c19138b880d512ce
-Latest Commit Msg:    fix: correct model ID, add TTS SPI, weather tool scaffolding, logging overhaul
-Audit Timestamp:      2026-04-19T17:10:00Z
+Project Name:        Pairion-Server
+Repository URL:      (local — no remote URL in pom.xml)
+Primary Language:    Java 21 + Spring Boot 3.4.4
+Build Tool:          Maven (multi-module, pom parent)
+Current Branch:      main
+Latest Commit:       fe11ccacedae7f1047d23ac3968ec3232db41f67 feat: configurable Piper TTS speech rate via lengthScale (PS-TTS-001)
+Audit Timestamp:     2026-04-21T22:36:01Z
 ```
 
-## 2. Directory Structure
+Multi-module Maven project with 9 modules: pairion-native-whisper, pairion-native-piper, pairion-core, pairion-adapters, pairion-household, pairion-memory, pairion-skills, pairion-agent, pairion-gateway. Spring Boot app entry point is pairion-gateway.
+
+---
+## Section 2: Directory Structure
 
 ```
-./pom.xml                                            ← root multi-module POM
-./Architecture.md                                    ← architectural spec
-./asyncapi.yaml                                      ← WebSocket protocol spec
-./openapi.yaml                                       ← REST API spec
-./CONVENTIONS.md
+./Architecture.md
+./asyncapi.yaml
+./CHANGELOG.md
+./CLAUDE.md
 ./config/checkstyle/checkstyle.xml
 ./config/checkstyle/suppressions.xml
-
-pairion-native-whisper/                              ← builds whisper.cpp from source, bundles lib
-  pom.xml
-  src/main/java/com/pairion/nativelib/whisper/
-    NativeLibraryLoader.java                         ← classpath extraction of native lib
-    WhisperBindings.java                             ← jextract-generated FFM bindings (excluded)
-    whisper_context_params.java                      ← jextract struct (excluded)
-    whisper_full_params.java                         ← jextract struct (excluded)
-
-pairion-core/                                        ← domain types, events, utilities
-  src/main/java/com/pairion/core/
-    agent/AgentState.java                            ← enum: IDLE, LISTENING, THINKING, SPEAKING
-    llm/LlmRequest.java                              ← record: LLM generation request
-    llm/LlmEvent.java                                ← sealed: TokenDelta, ToolCallRequest, ToolCallResult, Stop
-    llm/LlmCapabilities.java                         ← record: adapter capability descriptor
-    llm/ToolDefinition.java                          ← record: LLM tool definition
-    stt/SttCapabilities.java                         ← record: STT capability descriptor
-    stt/SttEvent.java                                ← sealed: Partial, Final
-    tts/TtsCapabilities.java                         ← record: TTS capability descriptor
-    tts/TtsEvent.java                                ← sealed: Chunk, Completed
-    util/ModelDownloader.java                        ← SHA-256 verified model file downloader
-    ws/WebSocketMessage.java                         ← sealed: all 20 WS envelope types
-    ws/[19 message record types]
-
-pairion-adapters/                                    ← SPI interfaces + vendor implementations
-  src/main/java/com/pairion/adapters/
-    audio/opus/
-      OpusDecoder.java                               ← strips 4-byte prefix, decodes Opus→PCM
-      OpusDecoderNative.java                         ← interface: decodeFrame, reset
-      ConcentusOpusDecoder.java                      ← Concentus pure-Java implementation
-    llm/spi/LlmAdapter.java                          ← SPI interface
-    llm/anthropic/
-      AnthropicLlmAdapter.java                       ← Spring @Component, ConditionalOnProperty
-      AnthropicClientWrapper.java                    ← internal boundary interface
-      DefaultAnthropicClientWrapper.java             ← production SDK impl (excluded from coverage)
-    stt/spi/SttAdapter.java                          ← SPI interface + SttSession inner interface
-    stt/whispercpp/
-      WhisperCppNative.java                          ← internal boundary interface
-      WhisperCppSttAdapter.java                      ← Spring @Component, ConditionalOnBean
-      DefaultWhisperCppNative.java                   ← FFM-based production impl
-      LibraryLoader.java                             ← functional interface for test injection
-    tts/spi/TtsAdapter.java                          ← SPI interface (no impl yet)
-    vad/spi/VadAdapter.java                          ← SPI stub (name() only)
-    embedding/spi/EmbeddingAdapter.java              ← SPI stub (name() only)
-    vectorstore/spi/VectorStoreAdapter.java          ← SPI stub (name() only)
-    voiceid/spi/VoiceIdAdapter.java                  ← SPI stub (name() only)
-    wake/spi/WakeAdapter.java                        ← SPI stub (name() only)
-
-pairion-agent/                                       ← turn loop, session management, SOUL
-  src/main/java/com/pairion/agent/
-    session/AgentSession.java                        ← per-connection turn loop orchestrator
-    session/AgentSessionEvent.java                   ← sealed: StateChangeEvent, TranscriptPartialEvent, TranscriptFinalEvent, LlmTokenEvent
-    soul/SoulPromptProvider.java                     ← interface: getSystemPrompt(sessionId)
-    soul/DefaultSoulPromptProvider.java              ← placeholder hardcoded SOUL prompt
-
-pairion-gateway/                                     ← Spring Boot app entry point
-  src/main/java/com/pairion/gateway/
-    PairionServerApplication.java                    ← @SpringBootApplication main class
-    config/
-      WebSocketConfig.java                           ← registers /ws/v1 handler
-      ApiKeyStartupCheck.java                        ← warns if ANTHROPIC_API_KEY missing
-      ApiKeyRedactionFilter.java                     ← Logback TurboFilter, denies sk-ant-* logs
-    rest/
-      HealthController.java                          ← GET /v1/health, GET /v1/version
-      AdapterController.java                         ← GET /v1/adapters, GET /v1/adapters/{cat}/{name}
-      HouseholdController.java                       ← GET/POST/DELETE /v1/household/...
-      LogController.java                             ← POST /v1/logs
-      MemoryController.java                          ← GET /v1/memory/episodes
-      SkillController.java                           ← GET /v1/skills, GET /v1/skills/{id}
-    ws/PairionWebSocketHandler.java                  ← AbstractWebSocketHandler at /ws/v1
-  src/main/resources/
-    application.yml
-    logback-spring.xml
-  src/test/resources/
-    application.yml
-
-pairion-household/                                   ← placeholder module (package-info only)
-pairion-memory/                                      ← placeholder module (package-info only)
-pairion-skills/                                      ← placeholder module (package-info only)
+./CONVENTIONS.md
+./openapi.yaml
+./pom.xml (parent)
+./pairion-native-whisper/  — jextract-generated whisper.cpp FFM bindings
+./pairion-native-piper/    — jextract-generated Piper TTS FFM bindings
+./pairion-core/            — Domain types, WebSocket message types, LLM/STT/TTS types, utilities
+./pairion-adapters/        — Adapter SPI interfaces + implementations (Anthropic, OpenAI-compat, Piper, Whisper.cpp, Opus)
+./pairion-household/       — Household/User/voice registry (stub module, package-info only)
+./pairion-memory/          — Episodic/semantic memory (stub module, package-info only)
+./pairion-skills/          — MCP client, skill registry (stub module, package-info only)
+./pairion-agent/           — Agent session orchestrator, SOUL prompt provider, tools, markdown stripper
+./pairion-gateway/         — Spring Boot app; REST controllers, WebSocket handler, config, startup
 ```
 
-Multi-module Maven project with 8 modules. Spring Boot app is `pairion-gateway`. Modules `pairion-household`, `pairion-memory`, and `pairion-skills` are scaffolded but contain only `package-info.java`. All source code is under `src/main/java/com/pairion/`.
+Single Maven project, multi-module layout. Source under `src/main/java` per module. Spring Boot application lives in pairion-gateway. pairion-household, pairion-memory, and pairion-skills are stub modules (package-info only).
 
-## 3. Build & Dependency Manifest
+---
+## Section 3: Build & Dependency Manifest
 
-### Root POM (`pom.xml`)
-- Parent: `spring-boot-starter-parent:3.4.4`
-- GroupId: `com.pairion`, ArtifactId: `pairion-server`, Version: `0.1.0-SNAPSHOT`
-- Java: 21 with `--enable-preview` and `--enable-native-access=ALL-UNNAMED`
+### Parent POM (pom.xml)
+- Spring Boot Parent: 3.4.4
+- Java: 21 (preview enabled)
+- ArchUnit: 1.3.0
+- Spotless: 2.43.0 (Google Java Format 1.22.0, AOSP style)
+- JaCoCo: 0.8.12 (100% line + branch coverage enforced; specific exclusions for native/generated code)
+- Checkstyle: 10.21.4 (config/checkstyle/checkstyle.xml; failOnViolation=true)
 
-### Global Dependencies (all modules inherit)
+**Global dependencies (all modules):**
+
 | Dependency | Version | Purpose |
 |---|---|---|
-| `org.slf4j:slf4j-api` | (Spring Boot BOM) | Logging facade |
-| `org.junit.jupiter:junit-jupiter` | (Spring Boot BOM) | Unit testing |
-| `org.assertj:assertj-core` | (Spring Boot BOM) | Assertion library |
-| `org.mockito:mockito-core` | (Spring Boot BOM) | Mocking framework |
+| slf4j-api | (Spring Boot managed) | Logging facade |
+| junit-jupiter | (Spring Boot managed) | Test framework |
+| assertj-core | (Spring Boot managed) | Fluent assertions |
+| mockito-core | (Spring Boot managed) | Mocking |
 
-### Module: `pairion-native-whisper`
+**pairion-core dependencies:**
+
 | Dependency | Version | Purpose |
 |---|---|---|
-| `exec-maven-plugin` | 3.5.0 | Clones/builds whisper.cpp v1.8.4 from source |
-| `build-helper-maven-plugin` | 3.6.0 | Adds jextract generated sources to compile path |
-| jextract (tool) | 21-jextract+1-2 | Generates Java FFM bindings from whisper.h |
+| jackson-databind | (Spring Boot managed) | JSON serialization |
+| jackson-annotations | (Spring Boot managed) | JSON annotations |
 
-Build: clones `github.com/ggerganov/whisper.cpp` tag `v1.8.4`, builds with CMake (Metal ON, shared lib), generates bindings via jextract. Output: `native/darwin-aarch64/libwhisper.dylib` as classpath resource.
+**pairion-adapters dependencies:**
 
-### Module: `pairion-core`
 | Dependency | Version | Purpose |
 |---|---|---|
-| `com.fasterxml.jackson.core:jackson-databind` | (Spring Boot BOM) | JSON serialization for WS messages |
-| `com.fasterxml.jackson.core:jackson-annotations` | (Spring Boot BOM) | @JsonSubTypes, @JsonTypeInfo |
+| pairion-core | 0.1.0-SNAPSHOT | Domain types |
+| pairion-native-whisper | 0.1.0-SNAPSHOT | Whisper.cpp FFM bindings |
+| pairion-native-piper | 0.1.0-SNAPSHOT | Piper TTS FFM bindings |
+| anthropic-java | 2.25.0 | Anthropic Java SDK (restricted to llm.anthropic package) |
+| concentus | 1.0.2 | Pure-Java Opus encoder/decoder |
+| spring-context | (Spring Boot managed) | @Component, @ConditionalOnProperty |
+| spring-boot-autoconfigure | (Spring Boot managed) | Conditional beans |
 
-### Module: `pairion-adapters`
+**pairion-gateway dependencies:**
+
 | Dependency | Version | Purpose |
 |---|---|---|
-| `com.anthropic:anthropic-java` | 2.25.0 | Anthropic Claude API SDK |
-| `io.github.jaredmdobson:concentus` | 1.0.2 | Pure-Java Opus encoder/decoder |
-| `org.springframework:spring-context` | (Boot BOM) | @Component, @ConditionalOnProperty |
-| `org.springframework.boot:spring-boot-autoconfigure` | (Boot BOM) | @ConditionalOnBean |
+| pairion-core, pairion-adapters, pairion-household, pairion-memory, pairion-skills, pairion-agent | 0.1.0-SNAPSHOT | Internal modules |
+| spring-boot-starter-web | (Spring Boot managed) | REST endpoints |
+| spring-boot-starter-websocket | (Spring Boot managed) | WebSocket |
+| logback-classic | (Spring Boot managed) | Logging implementation |
+| logstash-logback-encoder | 8.0 | Structured JSON logging |
+| archunit-junit5 | 1.3.0 | Architecture tests (test scope) |
+| spring-boot-starter-test | (Spring Boot managed) | Test support |
 
-### Module: `pairion-gateway`
-| Dependency | Version | Purpose |
-|---|---|---|
-| `spring-boot-starter-web` | (Boot BOM) | Spring MVC, Tomcat |
-| `spring-boot-starter-websocket` | (Boot BOM) | Raw WebSocket support |
-| `ch.qos.logback:logback-classic` | (Boot BOM) | Logging implementation |
-| `net.logstash.logback:logstash-logback-encoder` | 8.0 | JSON log formatting |
-| `com.tngtech.archunit:archunit-junit5` | 1.3.0 | Architecture constraint testing |
-| `spring-boot-starter-test` | (Boot BOM) | Spring test support |
+**pairion-agent dependencies:**
+pairion-core, pairion-household, pairion-memory, pairion-skills, pairion-adapters, spring-context; logback-classic (test scope).
 
-### Build Plugins (global)
-| Plugin | Version | Purpose |
-|---|---|---|
-| `maven-compiler-plugin` | (Boot BOM) | Java 21 + `--enable-preview` |
-| `maven-surefire-plugin` | (Boot BOM) | Test runner with preview/native args |
-| `jacoco-maven-plugin` | 0.8.12 | Coverage; enforces 100% LINE+BRANCH at bundle level |
-| `spotless-maven-plugin` | 2.43.0 | Google Java Format (AOSP style) |
-| `maven-checkstyle-plugin` | 3.6.0 | Checkstyle 10.21.4 with project config |
-| `spring-boot-maven-plugin` | (Boot BOM) | Fat JAR packaging in pairion-gateway |
-
-### JaCoCo Exclusions
-- `com/pairion/nativelib/whisper/WhisperBindings.class` — jextract generated
-- `com/pairion/nativelib/whisper/RuntimeHelper.class` — jextract generated
-- `com/pairion/nativelib/whisper/constants*.class` — jextract generated
-- `com/pairion/nativelib/whisper/whisper_context_params.class` — jextract struct
-- `com/pairion/nativelib/whisper/whisper_full_params.class` — jextract struct
-- `com/pairion/adapters/audio/opus/OpusDecoder.class` — catch(OpusException) unreachable
-- `com/pairion/adapters/llm/anthropic/DefaultAnthropicClientWrapper.class` — requires real API key
-
-### Build Commands
+**Build commands:**
 ```
-Build:   mvn clean compile -DskipTests
-Test:    mvn test
-Run:     mvn spring-boot:run -pl pairion-gateway
-Package: mvn clean package
+Build:    mvn clean compile -DskipTests
+Test:     mvn test
+Verify:   mvn verify  (enforces JaCoCo 100% coverage + Checkstyle)
+Run:      mvn spring-boot:run -pl pairion-gateway
+Package:  mvn clean package -pl pairion-gateway -am
 ```
 
-## 4. Configuration & Infrastructure Summary
+---
+## Section 4: Configuration & Infrastructure Summary
 
-### `pairion-gateway/src/main/resources/application.yml`
+**File:** `pairion-gateway/src/main/resources/application.yml`
 - Server port: **18789**
-- WebSocket max binary message buffer: 1 MB, text: 256 KB
-- Logging root: INFO, `com.pairion`: DEBUG
-- Log file: `${user.home}/Pairion/logs/pairion.log`
-- Log rolling: daily, max 10 MB/file, 100 MB total cap, 7-day history
-- No profiles defined (single profile configuration)
+- Virtual threads: enabled (`spring.threads.virtual.enabled=true`)
+- WebSocket buffer: binary=1MB, text=256KB
+- LLM adapter: `pairion.adapters.llm=openaicompat` (default config points to LM Studio at localhost:1234)
+- Anthropic adapter: activated via `pairion.adapters.llm=anthropic`; requires `ANTHROPIC_API_KEY` env var
+- TTS: Piper voice=en_GB-alan-medium, length-scale=0.85
+- Logging: root=INFO, com.pairion=DEBUG; file at `${user.home}/Pairion/logs/pairion.log`; rolling 10MB max, 7 days history
 
-### `pairion-gateway/src/main/resources/logback-spring.xml`
-- Two appenders: CONSOLE and FILE (rolling)
-- Pattern: `%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n` (plain text, not JSON)
-- `com.pairion` logger at DEBUG; root at INFO
-- `ApiKeyRedactionFilter` (TurboFilter) registered to deny logs containing `sk-ant-[A-Za-z0-9_-]+`
-- Note: `logstash-logback-encoder` is a dependency but JSON layout is NOT wired in current config
+**File:** `pairion-gateway/src/main/resources/logback-spring.xml`
+- Console + rolling file appenders
+- Pattern: `%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n`
+- Rolling: daily + 10MB size trigger, 30-day history, 1GB total cap
+- com.pairion package at DEBUG level
 
-### `pairion-gateway/src/test/resources/application.yml`
-- Port: 0 (random)
-- Virtual threads: enabled
-- Banner: off
-- `pairion.stt.native.enabled: false` — disables native whisper for tests
+**File:** `pairion-gateway/src/test/resources/application.yml`
+- Test-specific config (read separately in Section 11)
 
 **Connection map:**
 ```
-Database:        None (no persistence layer implemented)
-Cache:           None
-Message Broker:  None
-External APIs:   Anthropic Messages API (api.anthropic.com via Anthropic Java SDK)
-Cloud Services:  None
-Model Downloads: huggingface.co/ggerganov/whisper.cpp (ggml-small.en.bin, on first run)
+Database:       None
+Cache:          None
+Message Broker: None
+External APIs:  LLM backends (configurable — LM Studio/Ollama at localhost:1234 or Anthropic cloud)
+                Open-Meteo weather API (HTTP, via OpenMeteoWeatherTool)
+Cloud Services: Anthropic API (when llm=anthropic) — requires ANTHROPIC_API_KEY
 ```
 
-**CI/CD:** None detected in project root. (GitHub workflow files found in `pairion-native-whisper/target/whisper.cpp-src/.github/` are from the vendored whisper.cpp source, not Pairion CI.)
+**CI/CD:** None detected (no .github/workflows, Jenkinsfile, or .gitlab-ci.yml).
 
-## 5. Startup & Runtime Behavior
-
-**Entry point:** `com.pairion.gateway.PairionServerApplication.main(String[])`
-- `@SpringBootApplication(scanBasePackages = "com.pairion")` — scans all 8 modules
-
-**Startup sequence:**
-1. Spring Boot auto-configuration starts on port 18789
-2. `DefaultWhisperCppNative` constructor: attempts to load bundled `libwhisper.dylib` from classpath, resolves model path at `$PAIRION_HOME/models/whisper/ggml-small.en.bin` (or `~/.pairion/models/whisper/`). Logs WARN if library or model not found; does not block startup.
-3. `AnthropicLlmAdapter` constructor: logs the configured model (`claude-sonnet-4-6`)
-4. `DefaultAnthropicClientWrapper` constructor: reads `ANTHROPIC_API_KEY` env var; logs WARN if absent
-5. `ApiKeyStartupCheck.checkApiKey()` (`@EventListener(ApplicationReadyEvent)`) — logs INFO if key present, WARN if absent
-6. `WebSocketConfig.registerWebSocketHandlers()` — registers `PairionWebSocketHandler` at `/ws/v1` with `setAllowedOrigins("*")`
-
-**Scheduled tasks:** None.
-
-**Health check:** `GET /v1/health` → `{"status":"healthy"}` (always 200, not Spring Actuator).
-
-**Background jobs:** Model download happens on first transcription request, not startup.
-
-**Virtual threads:** `spring.threads.virtual.enabled: true` in test config only; not wired in main `application.yml`. Spring Boot 3.4.4 enables virtual threads by default when `spring.threads.virtual.enabled=true`.
-
-## 6. Entity / Data Model Layer
-
-No JPA entities exist. The project has no persistence layer at this milestone. Modules `pairion-household`, `pairion-memory`, and `pairion-skills` are scaffold-only.
-
-**Domain records (pairion-core) — not persisted:**
-
+**Environment map:**
 ```
+ANTHROPIC_API_KEY — required when pairion.adapters.llm=anthropic
+PAIRION_NATIVE_TESTS — set to "1" to enable native library integration tests
+```
+
+---
+## Section 5: Startup & Runtime Behavior
+
+**Entry point:** `com.pairion.gateway.PairionServerApplication`
+- `@SpringBootApplication(scanBasePackages = "com.pairion")`
+- `main()` calls `SpringApplication.run(PairionServerApplication.class, args)`
+- Port: 18789; virtual threads enabled
+
+**On startup (ApplicationReadyEvent):** `ModelStartupService.onApplicationReady()`
+- Spawns two virtual threads:
+  1. `model-download-whisper` — downloads `ggml-small.en.bin` to `$PAIRION_HOME/models/whisper/` (fallback: `~/.pairion/models/whisper/`). SHA-256 verified. Idempotent (skips if exists).
+  2. `model-download-piper` — downloads `<voice>.onnx` + `<voice>.onnx.json` to `$PAIRION_HOME/models/tts/`. SHA-256 verified. Idempotent.
+- Server accepts requests immediately; downloads are non-blocking
+
+**WebSocket config:** `WebSocketConfig` registers `PairionWebSocketHandler` at `/ws/v1` with `setAllowedOrigins("*")`.
+
+**Scheduled tasks:** None detected.
+
+**Health check:** `GET /v1/health` → `HealthController` returns 200 OK (see Section 10).
+
+**`PAIRION_HOME` env var:** Controls model storage directory. Defaults to `~/.pairion`.
+
+---
+## Section 6: Entity / Data Model Layer
+
+This project has **no JPA entities or relational database**. Domain types are Java records.
+
+### Core Domain Records (pairion-core)
+
 === LlmRequest (record) ===
-Fields: String systemPrompt, String userMessage, List<ToolDefinition> toolDefinitions, String model (nullable)
-Factory: LlmRequest.simple(systemPrompt, userMessage) → no tools, null model
-
-=== ToolDefinition (record) ===
-Fields: String name, String description, Map<String,Object> inputSchema
-
-=== LlmCapabilities (record) ===
-Fields: boolean available, boolean supportsToolUse, boolean supportsStreaming
-Factory: LlmCapabilities.unavailable() → false/false/false
-
-=== SttCapabilities (record) ===
-Fields: boolean available, boolean supportsStreaming
-Factory: SttCapabilities.unavailable() → false/false
-
-=== TtsCapabilities (record) ===
-Fields: boolean available, boolean supportsStreaming
-Factory: TtsCapabilities.unavailable() → false/false
+Fields: systemPrompt (String), userMessage (String), toolDefinitions (List<ToolDefinition>), model (String, nullable), toolCallHistory (List<ToolCallPair>)
+Nested record: ToolCallPair(toolCallId, toolName, toolInput Map<String,Object>, toolOutput Map<String,Object>)
+Factory: LlmRequest.simple(systemPrompt, userMessage) — no tools, null model
 
 === LlmEvent (sealed interface) ===
-Permits: TokenDelta(String delta), ToolCallRequest(String toolCallId, String toolName, Map<String,Object> input),
-         ToolCallResult(String toolCallId, Map<String,Object> output), Stop(int outputTokens)
+Permits: TokenDelta(delta String), ToolCallRequest(toolCallId, toolName, input Map<String,Object>), ToolCallResult(toolCallId, output Map<String,Object>), Stop(outputTokens int)
+
+=== LlmCapabilities (record) ===
+Fields: available (boolean), supportsToolUse (boolean), supportsStreaming (boolean)
+Factory: LlmCapabilities.unavailable()
+
+=== ToolDefinition (record) ===
+Fields: name (String), description (String), inputSchema (Map<String,Object>)
 
 === SttEvent (sealed interface) ===
-Permits: Partial(String text), Final(String text, long durationMs)
+Permits: Partial(text String), Final(text String, durationMs long)
+
+=== SttCapabilities (record) ===
+Fields: available (boolean), supportsStreaming (boolean)
+Factory: SttCapabilities.unavailable()
 
 === TtsEvent (sealed interface) ===
-Permits: Chunk(byte[] audio, boolean isOpus), Completed(long totalDurationMs)
-```
+Permits: Chunk(audio byte[], isOpus boolean), Completed(totalDurationMs long)
 
-## 7. Enum Inventory
+=== TtsCapabilities (record) ===
+Fields: available (boolean), supportsStreaming (boolean)
+Factory: TtsCapabilities.unavailable()
 
-```
+=== ModelDownloader (utility class) ===
+Public methods: download(String url, Path targetPath, String expectedSha256): boolean
+Package-private: writeWithProgress(InputStream, Path, long): void; computeSha256(Path): String; getDigest(String): static MessageDigest
+
+### WebSocket Message Types (pairion-core, com.pairion.core.ws)
+
+All are Java records implementing sealed `WebSocketMessage` interface. Jackson polymorphic deserialization via `@JsonTypeInfo(use=NAME, property="type")` and `@JsonSubTypes`.
+
+| Type | Direction | Fields |
+|---|---|---|
+| DeviceIdentify | C→S | type, deviceId, bearerToken, clientVersion |
+| SessionOpened | S→C | type, sessionId, serverVersion |
+| SessionClosed | S→C | type, reason |
+| HeartbeatPing | C→S | type, timestamp |
+| HeartbeatPong | S→C | type, timestamp |
+| ErrorMessage | S→C | type, code, message |
+| AgentStateChange | S→C | type, state (idle/listening/thinking/speaking) |
+| WakeWordDetected | C→S | type, timestamp, confidence (Double, nullable) |
+| AudioStreamStart | Bidir | type, streamId, codec, sampleRate |
+| SpeechEnded | C→S | type, streamId |
+| AudioStreamEnd | Bidir | type, streamId, reason |
+| TextMessage | C→S | type, text |
+| TranscriptPartial | S→C | type, text |
+| TranscriptFinal | S→C | type, text |
+| LlmTokenStream | S→C | type, delta |
+| ToolCallStarted | S→C | type, toolCallId, toolName, input (Map) |
+| ToolCallCompleted | S→C | type, toolCallId, output (Map) |
+| UnderBreathAck | S→C | type, acknowledgementType (nullable) |
+| MapFocus | S→C | type, lat (double), lon (double), label, zoom |
+| MapClear | S→C | type |
+| ConversationEnded | S→C | type |
+
+---
+## Section 7: Enum Inventory
+
 === AgentState (com.pairion.core.agent) ===
 Values: IDLE("idle"), LISTENING("listening"), THINKING("thinking"), SPEAKING("speaking")
-Used in: AgentSession (currentState field), AgentSessionEvent.StateChangeEvent, AgentStateChange WS message
-Has display label: YES — wireValue() method returns lowercase wire-format string
-```
+Used in: AgentStateChange WS message, AgentSession
+Has display label: YES — wireValue() returns the JSON wire string
 
-No other enums in production code. WebSocket message types use `String` constants (e.g., `AgentStateChange.TYPE = "AgentStateChange"`).
+No other enums detected in src/main/java.
 
-## 8. Repository Layer
+---
+## Section 8: Repository Layer
 
-No repository layer exists. The project has no database or persistence. Data access will be added in future milestones (pairion-household, pairion-memory, pairion-skills modules are currently empty scaffolds).
+**No JPA repositories.** This project does not use a relational database or Spring Data. There is no repository layer.
 
-## 9. Service Layer — Full Method Signatures
+---
+## Section 9: Service Layer — Full Method Signatures
 
-No traditional `@Service` classes exist. Business logic is in `AgentSession` (plain class) and the adapter implementations. Key classes:
+### Adapter SPI Interfaces (pairion-adapters)
 
-```
+=== LlmAdapter (interface) ===
+- name(): String
+- capabilities(): LlmCapabilities
+- generate(LlmRequest request, Consumer<LlmEvent> eventConsumer): void
+
+=== AnthropicLlmAdapter implements LlmAdapter ===
+Activated: @ConditionalOnProperty(name="pairion.adapters.llm", havingValue="anthropic", matchIfMissing=true)
+Injects: AnthropicClientWrapper, @Value("${pairion.adapters.llm.anthropic.model:claude-sonnet-4-6}") String
+- name(): String → "anthropic"
+- capabilities(): LlmCapabilities — delegates to clientWrapper.isAvailable()
+- generate(LlmRequest, Consumer<LlmEvent>): void — calls clientWrapper.streamCompletion(); logs first-token-ms, total-ms via MDC sessionId
+
+=== OpenAiCompatLlmAdapter implements LlmAdapter ===
+Activated: @ConditionalOnProperty(name="pairion.adapters.llm", havingValue="openaicompat")
+Injects: OpenAiCompatClientWrapper, @Value baseUrl/model/apiKey
+- name(): String → "openaicompat"
+- capabilities(): LlmCapabilities — delegates to clientWrapper.isAvailable()
+- generate(LlmRequest, Consumer<LlmEvent>): void — passes baseUrl, apiKey, model, system, user, tools, toolHistory; logs first-token-ms, total-ms
+
+=== SttAdapter (interface) ===
+- name(): String
+- capabilities(): SttCapabilities
+- createSession(Consumer<SttEvent> eventConsumer): SttSession
+- SttSession.feedAudio(byte[] pcmData): void
+- SttSession.finalizeStream(): void
+
+=== WhisperCppSttAdapter implements SttAdapter ===
+Activated: @ConditionalOnProperty(name="pairion.adapters.stt", havingValue="whispercpp", matchIfMissing=true) + @ConditionalOnBean(WhisperCppNative.class)
+Injects: WhisperCppNative
+- name(): String → "whispercpp"
+- capabilities(): SttCapabilities — delegates to nativeImpl.isAvailable()
+- createSession(Consumer<SttEvent>): SttSession → WhisperSttSession
+  WhisperSttSession.feedAudio(byte[]): accumulates PCM; emits Partial at 200ms throttle interval
+  WhisperSttSession.finalizeStream(): runs full transcription via nativeImpl.transcribe(); emits SttEvent.Final
+
+=== TtsAdapter (interface) ===
+- name(): String
+- capabilities(): TtsCapabilities
+- speak(String text, Consumer<TtsEvent> eventConsumer): void
+
+=== PiperTtsAdapter implements TtsAdapter ===
+Activated: @ConditionalOnProperty(name="pairion.adapters.tts", havingValue="piper", matchIfMissing=true) + @ConditionalOnBean(PiperTtsNative.class)
+Injects: PiperTtsNative
+- name(): String → "piper"
+- capabilities(): TtsCapabilities
+- speak(String text, Consumer<TtsEvent>): void — calls piperNative.synthesize(); resamples to 16 kHz; Opus-encodes with 4-byte stream ID prefix; emits TtsEvent.Chunk(isOpus=true) per frame; emits TtsEvent.Completed
+
+### Agent Services (pairion-agent)
+
 === AgentSession (com.pairion.agent.session) ===
-Injects (constructor): String sessionId, SttAdapter sttAdapter, LlmAdapter llmAdapter,
-                       SoulPromptProvider soulProvider, Consumer<AgentSessionEvent> eventSink
+Injects (constructor): sessionId, SttAdapter, LlmAdapter, TtsAdapter, SoulPromptProvider, ToolDispatcher, Consumer<AgentSessionEvent>
+- onAudioStreamStart(String streamId): void — allocates OpusDecoder + SttSession; emits LISTENING state
+- onAudioChunk(byte[] frameData): void — Opus decodes; feeds PCM to SttSession
+- onSpeechEnded(): void — records sttStartNano; calls sttSession.finalizeStream()
+- currentState(): AgentState
+- close(): void — shuts down clearScheduler
+- handleSttEvent(SttEvent): void [package-private] — routes Partial/Final; triggers onTranscriptFinal on Final
+- handleLlmEvent(LlmEvent, StringBuilder, List<ToolCallRequest>): void [package-private]
+- emitTimedMapClear(): void [package-private] — used by 2-min scheduler
 
-Public Methods:
-  - onAudioStreamStart(String streamId): void
-    Purpose: Allocates OpusDecoder + SttAdapter.SttSession, transitions to LISTENING
-    Calls: OpusDecoder.create(), sttAdapter.createSession()
-    Throws: none declared
-    Transactional: NO
+Private turn loop: onTranscriptFinal() — checks map-clear/conversation-end phrases; transitions THINKING; multi-turn LLM/tool loop (max 5 rounds); MarkdownStripper.strip(); TTS synthesis; logs [LATENCY] stages A/B/C/D/E/F/T
 
-  - onAudioChunk(byte[] frameData): void
-    Purpose: Decodes Opus frame and feeds PCM to STT session
-    Calls: opusDecoder.decode(), sttSession.feedAudio()
-    Throws: none declared
-    Transactional: NO
+=== ToolDispatcher (@Component) ===
+Injects: List<AgentTool> (auto-discovered Spring beans)
+- dispatch(String toolName, Map<String,Object> input): Map<String,Object>
 
-  - onSpeechEnded(): void
-    Purpose: Signals STT finalization
-    Calls: sttSession.finalizeStream()
-    Throws: none declared
-    Transactional: NO
+=== OpenMeteoWeatherTool (@Component, implements AgentTool) ===
+- name(): String → "get_current_weather"
+- execute(Map<String,Object> input): Map<String,Object>
+  Two HTTP calls: geocoding (open-meteo geocoding API) + forecast (open-meteo forecast API). 5-sec timeouts. Returns: city, temperature_f, conditions, wind_speed_mph, latitude, longitude.
 
-  - currentState(): AgentState
-    Purpose: Returns current processing state
-    Calls: (field access)
-    Throws: none
-    Transactional: NO
+=== MapFocusTool (@Component, implements AgentTool) ===
+- name(): String → "focus_map"
+- execute(Map<String,Object> input): Map<String,Object>
+  One HTTP call: open-meteo geocoding. Returns: lat, lon, label, zoom, status.
 
-Package-private Methods:
-  - handleSttEvent(SttEvent): void
-  - handleLlmEvent(LlmEvent): void
-  - onTranscriptFinal(String): void  [private — builds LlmRequest with weather tool, calls llmAdapter.generate()]
-  - transitionState(AgentState): void  [private]
+=== DefaultSoulPromptProvider (@Component, implements SoulPromptProvider) ===
+- getSystemPrompt(String sessionId): String — returns hardcoded "Jarvis" SOUL prompt (placeholder for M1)
 
-=== DefaultSoulPromptProvider (com.pairion.agent.soul) ===
-Injects: none (Spring @Component)
+### Gateway Services (pairion-gateway)
 
-Public Methods:
-  - getSystemPrompt(String sessionId): String
-    Purpose: Returns the hardcoded M1 placeholder SOUL prompt (references weather tool)
-    Calls: none
-    Throws: none
-    Transactional: NO
+=== ModelStartupService (@Component) ===
+Injects: @Value piperVoice, ModelDownloader
+- onApplicationReady(): void [@EventListener(ApplicationReadyEvent)] — spawns virtual threads for whisper + piper model downloads
+- downloadWhisperModel(): void [package-private]
+- downloadPiperModel(): void [package-private]
+- resolveModelPath(String, String, String): Path [package-private]
 
-=== AnthropicLlmAdapter (com.pairion.adapters.llm.anthropic) ===
-Injects (constructor): AnthropicClientWrapper clientWrapper, @Value String defaultModel (claude-sonnet-4-6)
-Condition: @ConditionalOnProperty(pairion.adapters.llm=anthropic, matchIfMissing=true)
+### Utility Classes (pairion-core)
 
-Public Methods:
-  - name(): String → "anthropic"
-  - capabilities(): LlmCapabilities
-    Purpose: Returns availability based on API key presence
-    Calls: clientWrapper.isAvailable()
-  - generate(LlmRequest request, Consumer<LlmEvent> eventConsumer): void
-    Purpose: Streams completion from Anthropic, emits TokenDelta/Stop events with latency logging
-    Calls: clientWrapper.streamCompletion(), MDC.get("sessionId")
-    Throws: none (errors forwarded as LlmEvent.Stop)
-    Transactional: NO
+=== ModelDownloader ===
+- download(String url, Path targetPath, String expectedSha256): boolean
+- writeWithProgress(InputStream, Path, long): void [package-private]
+- computeSha256(Path): String [package-private]
+- getDigest(String): static MessageDigest
 
-=== WhisperCppSttAdapter (com.pairion.adapters.stt.whispercpp) ===
-Injects (constructor): WhisperCppNative nativeImpl
-Condition: @ConditionalOnProperty(pairion.adapters.stt=whispercpp, matchIfMissing=true)
-           @ConditionalOnBean(WhisperCppNative.class)
+=== MarkdownStripper (com.pairion.agent.util, final utility class) ===
+- strip(String text): static String — strips markdown for TTS; handles links, headings, blockquotes, HR, bold, italic, backticks, whitespace
 
-Public Methods:
-  - name(): String → "whispercpp"
-  - capabilities(): SttCapabilities
-  - createSession(Consumer<SttEvent> eventConsumer): SttAdapter.SttSession
-    Purpose: Returns a new WhisperSttSession
-    Calls: new WhisperSttSession(nativeImpl, eventConsumer)
-
-=== ModelDownloader (com.pairion.core.util) ===
-Injects (constructor): HttpClient httpClient (or default)
-
-Public Methods:
-  - download(String url, Path targetPath, String expectedSha256): boolean
-    Purpose: Downloads file with SHA-256 verification; skips if already present
-    Calls: httpClient.send(), computeSha256(), Files.move()
-    Throws: IOException, InterruptedException (caught internally)
-    Transactional: NO
-
-Package-private Methods: writeWithProgress(), computeSha256(), getDigest()
-```
-
-## 10. Controller / API Layer — Method Signatures Only
-
-```
-=== HealthController (com.pairion.gateway.rest) ===
-Base Path: /v1
-Injects: none
-
-Endpoints:
-  - getHealth() → returns {"status":"healthy"}
-  - getVersion() → returns {"version","buildTime","gitCommit"}
-
-=== AdapterController (com.pairion.gateway.rest) ===
-Base Path: /v1/adapters
-Injects: none
-
-Endpoints:
-  - listAdapters() → returns empty List (stub)
-  - getAdapter(@PathVariable category, @PathVariable name) → returns stub Map
-
-=== HouseholdController (com.pairion.gateway.rest) ===
-Base Path: /v1/household
-Injects: none
-
-Endpoints:
-  - getHousehold() → returns stub household Map
-  - listUsers() → returns empty List (stub)
-  - createUser(@RequestBody Map body) → returns new user Map with generated UUID (201)
-  - getUser(@PathVariable userId) → returns stub user Map
-  - deleteUser(@PathVariable userId) → returns 204 No Content
-
-=== LogController (com.pairion.gateway.rest) ===
-Base Path: /v1/logs
-Injects: (Logger only)
-
-Endpoints:
-  - postLogs(@RequestBody List<Map> records) → forwards via log.info(), returns 204
-
-=== MemoryController (com.pairion.gateway.rest) ===
-Base Path: /v1/memory
-Injects: none
-
-Endpoints:
-  - listEpisodes(@RequestParam userId, @RequestParam(defaultValue="50") limit) → returns empty List (stub)
-
-=== SkillController (com.pairion.gateway.rest) ===
-Base Path: /v1/skills
-Injects: none
-
-Endpoints:
-  - listSkills() → returns empty List (stub)
-  - getSkill(@PathVariable skillId) → returns stub skill Map
+---
+## Section 10: Controller / API Layer — Method Signatures Only
 
 === PairionWebSocketHandler (com.pairion.gateway.ws) ===
-Endpoint: /ws/v1  (raw WebSocket, not STOMP)
-Injects (constructor): ObjectMapper, SttAdapter (nullable), LlmAdapter, SoulPromptProvider
+Handler: `AbstractWebSocketHandler`, registered at `/ws/v1`
+Injects: ObjectMapper, SttAdapter (nullable), LlmAdapter, TtsAdapter (nullable), SoulPromptProvider, ToolDispatcher
+Session map: ConcurrentHashMap<String, AgentSession>
 
-Session map: ConcurrentHashMap<String, AgentSession> (sessionId → AgentSession)
+Message dispatch:
+- afterConnectionEstablished() → logs sessionId
+- handleTextMessage() → deserializes WebSocketMessage → routes:
+  - DeviceIdentify → handleDeviceIdentify() → creates AgentSession, sends SessionOpened
+  - HeartbeatPing → handleHeartbeatPing() → sends HeartbeatPong
+  - AudioStreamStart → handleAudioStreamStart() → agentSession.onAudioStreamStart()
+  - SpeechEnded → handleSpeechEnded() → agentSession.onSpeechEnded()
+- handleBinaryMessage() → agentSession.onAudioChunk(bytes)
+- afterConnectionClosed() → removes AgentSession, calls agentSession.close()
+- sendAgentEvent() [package-private] → AudioChunkEvent → BinaryMessage; all others → JSON TextMessage
+- serializeEvent() [package-private] → maps AgentSessionEvent → WebSocketMessage JSON
 
-Public/package-private methods:
-  - afterConnectionEstablished(session) → logs info
-  - handleTextMessage(session, message) → polymorphic dispatch via sealed interface switch
-  - handleBinaryMessage(session, message) → routes to agentSession.onAudioChunk()
-  - afterConnectionClosed(session, status) → removes session from map
-  - handleDeviceIdentify(session, identify) → creates AgentSession, sends SessionOpened
-  - handleHeartbeatPing(session, ping) → sends HeartbeatPong
-  - handleAudioStreamStart(session, streamStart) → delegates to agentSession
-  - handleSpeechEnded(session) → delegates to agentSession
-  - sendAgentEvent(session, event) → serializes AgentSessionEvent to WS text frame
+=== HealthController ===
+Base Path: /v1
+- getHealth() → ResponseEntity<Map<String,String>> (status: "healthy")
+- getVersion() → ResponseEntity<Map<String,String>> (version: "0.1.0", buildTime, gitCommit)
+
+=== HouseholdController ===
+Base Path: /v1/household
+- getHousehold() → ResponseEntity<Map<String,Object>> (stub)
+- listUsers() → ResponseEntity<List<Object>> (stub, empty)
+- createUser(@RequestBody Map) → ResponseEntity<Map<String,Object>> (stub, 201 Created)
+- getUser(@PathVariable userId) → ResponseEntity<Map<String,Object>> (stub)
+- deleteUser(@PathVariable userId) → ResponseEntity<Void> (204 No Content)
+
+=== LogController ===
+Base Path: /v1/logs
+- postLogs(@RequestBody List<Map<String,Object>>) → ResponseEntity<Void> (forwards to server logger, 204)
+
+=== MemoryController ===
+Base Path: /v1/memory
+- listEpisodes(@RequestParam userId, @RequestParam(default=50) limit) → ResponseEntity<List<Object>> (stub, empty)
+
+=== AdapterController ===
+Base Path: /v1/adapters
+- listAdapters() → ResponseEntity<List<Object>> (stub, empty)
+- getAdapter(@PathVariable category, @PathVariable name) → ResponseEntity<Map<String,Object>> (stub)
+
+=== SkillController ===
+Base Path: /v1/skills
+- listSkills() → ResponseEntity<List<Object>> (stub, empty)
+- getSkill(@PathVariable skillId) → ResponseEntity<Map<String,Object>> (stub)
+
+---
+## Section 11: Security Configuration
+
+```
+Authentication:      None — no Spring Security dependency; no login/JWT/OAuth2
+Token issuer:        N/A
+Password encoder:    N/A
+
+Public endpoints:    ALL (no authentication layer configured)
+
+Protected endpoints: None (M1 milestone — auth is a future milestone)
+
+CORS:               WebSocket: setAllowedOrigins("*") (all origins allowed)
+                    REST: default Spring MVC (no CORS config)
+
+CSRF:               Not applicable (no Spring Security)
+
+Rate limiting:       None
+
+API Key Redaction:   ApiKeyRedactionFilter (Logback TurboFilter)
+                     — matches sk-ant-[A-Za-z0-9_-]+ in log messages
+                     — returns FilterReply.DENY to prevent key from reaching appenders
 ```
 
-## 11. Security Configuration
+**Note:** Device bearer token in `DeviceIdentify` message is received and logged but NOT validated (keychain-free in development per Architecture §9).
 
-No Spring Security dependency. The project has no authentication/authorization framework at this milestone.
+---
+## Section 12: Custom Security Components
 
-```
-Authentication:    None (no Spring Security)
-Token issuer:      None
-Password encoder:  None
-CORS:              WebSocket endpoint uses setAllowedOrigins("*") — unrestricted
-CSRF:              N/A (no CSRF protection — WebSocket only, no forms)
-Rate limiting:     None
-```
-
-**Security measures that DO exist:**
-- `ApiKeyRedactionFilter` (Logback TurboFilter): prevents `sk-ant-[A-Za-z0-9_-]+` from appearing in any log output
-- `ApiKeyStartupCheck`: warns at startup if `ANTHROPIC_API_KEY` is absent
-- No auth on any REST or WebSocket endpoint
-
-**Note:** `DeviceIdentify` WS message has a `bearerToken` field but it is not validated — it is only read for logging (ignored in handler).
-
-## 12. Custom Security Components
-
-```
 === ApiKeyRedactionFilter (com.pairion.gateway.config) ===
-Extends: ch.qos.logback.classic.turbo.TurboFilter
-Purpose: Denies any log event whose format string or parameters contain sk-ant-[A-Za-z0-9_-]+
-Extracts token from: N/A (inspects log message content, not HTTP)
-Registration: via logback-spring.xml <turboFilter> block (wired manually in logback config)
-Returns: FilterReply.DENY if pattern matches, FilterReply.NEUTRAL otherwise
+Extends: TurboFilter (Logback)
+Purpose: Redacts Anthropic API key patterns from log messages before any appender processes them
+Pattern: `sk-ant-[A-Za-z0-9_\-]+`
+Activation: Logback turbo filter; runs pre-appender on every log event
+Sets SecurityContext: N/A
+Behavior: DENY log events that match in format string or any param; NEUTRAL otherwise
 
-=== ApiKeyStartupCheck (com.pairion.gateway.config) ===
-Extends: Spring @Component
-Purpose: Reads ANTHROPIC_API_KEY from Spring Environment at ApplicationReadyEvent
-Logs: INFO if key present, WARN if absent — non-blocking
-```
+No other custom security components (no JWT filter, no UserDetailsService — not yet implemented).
 
-No JWT filter, no UserDetailsService, no custom authentication provider.
+---
+## Section 13: Exception Handling & Error Responses
 
-## 13. Exception Handling & Error Responses
+**No @ControllerAdvice / GlobalExceptionHandler.** The project does not have a centralized REST exception handler. Controller stubs return hardcoded success responses; WebSocket errors are logged and result in partial error messages sent to the client.
 
-No `@ControllerAdvice` or global exception handler exists. Each controller method returns `ResponseEntity` with explicit status codes. Unhandled exceptions fall through to Spring Boot's default `/error` endpoint.
+WebSocket error handling:
+- `PairionWebSocketHandler.sendAgentEvent()` catches Exception, logs it; does not propagate
+- TTS errors in `AgentSession.synthesizeSpeech()` — caught; sets endReason="error"; AudioStreamEnd sent with reason="error"
+- Tool errors in `ToolDispatcher.dispatch()` — caught; returns Map.of("error", "tool_execution_failed", "message", e.getMessage())
+- Tool not found: returns Map.of("error", "unknown_tool", "tool", toolName)
 
-**Current behavior:**
-- All controllers return explicit `ResponseEntity` with 200, 201, or 204 status
-- WebSocket errors are caught in `PairionWebSocketHandler.sendAgentEvent()` and logged at ERROR
-- LLM errors are forwarded to `LlmEvent.Stop` (no propagation to client as error frame)
-- No standard error response body format defined
+**OBSERVATION:** No @ControllerAdvice for REST endpoints — unhandled exceptions will produce Spring Boot default error response (500 with /error redirect). This is a gap for future milestones.
 
-**Gap:** No `@ControllerAdvice` — unhandled exceptions return Spring Boot default error response (no custom shape).
+---
+## Section 14: Mappers / DTOs
 
-## 14. Mappers / DTOs
+**No MapStruct or ModelMapper.** All serialization is handled via Jackson directly on Java records with `@JsonProperty` annotations.
 
-No MapStruct or ModelMapper. No DTO classes. All REST response bodies are built as `Map<String, Object>` inline in controllers (M0 stubs). The WebSocket protocol uses sealed record types in `com.pairion.core.ws` directly — these are the wire-format DTOs and are serialized/deserialized by Jackson.
+WebSocket message types ARE the DTOs — Java records implementing `WebSocketMessage`. Jackson uses `@JsonTypeInfo(use=NAME, property="type")` for polymorphic deserialization.
 
-**WebSocket wire types (com.pairion.core.ws) — act as DTOs:**
-All are Java records with `@JsonProperty` annotations. Full list: `DeviceIdentify`, `SessionOpened`, `SessionClosed`, `HeartbeatPing`, `HeartbeatPong`, `ErrorMessage`, `AgentStateChange`, `WakeWordDetected`, `AudioStreamStart`, `SpeechEnded`, `AudioStreamEnd`, `TextMessage`, `TranscriptPartial`, `TranscriptFinal`, `LlmTokenStream`, `ToolCallStarted`, `ToolCallCompleted`, `UnderBreathAck`.
+REST controllers return `Map<String, Object>` or `List<Object>` inline (stub responses only). No DTO classes defined.
 
-## 15. Utility Classes & Shared Components
+---
+## Section 15: Utility Classes & Shared Components
 
-```
+=== MarkdownStripper (com.pairion.agent.util) ===
+Final utility class, static-methods only.
+- strip(String text): static String
+  Applies: links→text, HR removal, heading removal, blockquote removal, bold removal, italic removal, backtick removal, whitespace collapse.
+  Returns: empty string for null/blank input.
+Used by: AgentSession.onTranscriptFinal() before TTS synthesis
+
 === ModelDownloader (com.pairion.core.util) ===
-Methods:
-  - download(String url, Path targetPath, String expectedSha256): boolean
-    Downloads file with SHA-256 hash verification; skips if exists; logs progress at 10% intervals
-  - writeWithProgress(InputStream in, Path target, long totalBytes): void [package-private]
-  - computeSha256(Path path): String [package-private]
-  - getDigest(String algorithm): MessageDigest [package-private, static]
-Used by: DefaultWhisperCppNative (indirectly via PAIRION_HOME model path; downloader not currently wired in)
+- download(String url, Path targetPath, String expectedSha256): boolean
+  Downloads to temp file, SHA-256 verifies, atomically moves to target. Idempotent (skips if exists). Follows redirects.
+- writeWithProgress(InputStream, Path, long): void [package-private] — logs at 10% intervals
+- computeSha256(Path): String [package-private]
+- getDigest(String): static MessageDigest [package-private]
+Used by: ModelStartupService
+
+=== OpusEncoder (com.pairion.adapters.audio.opus) ===
+- create(int sampleRate): static OpusEncoder — factory using ConcentusOpusEncoder
+- getFrameSize(): int — sampleRate * 20 / 1000 samples
+- getSampleRate(): int
+- encode(byte[] streamIdBytes, byte[] pcmFrame): byte[] — encodes and prepends 4-byte stream ID prefix
+- reset(): void
+Constants: CHANNELS=1, FRAME_DURATION_MS=20, STREAM_ID_PREFIX_LENGTH=4
+Used by: PiperTtsAdapter
 
 === OpusDecoder (com.pairion.adapters.audio.opus) ===
+- create(): static OpusDecoder — factory using ConcentusOpusDecoder
+- extractStreamId(byte[] frame): String — reads first 4 bytes as UTF-8
+- decode(byte[] frame): byte[] — strips 4-byte prefix, decodes Opus → 16-bit LE PCM
+- reset(): void
 Constants: SAMPLE_RATE=16000, CHANNELS=1, FRAME_DURATION_MS=20, FRAME_SIZE=320, STREAM_ID_PREFIX_LENGTH=4
-Methods:
-  - create(): OpusDecoder [static factory — creates ConcentusOpusDecoder]
-  - decode(byte[] frame): byte[] — strips 4-byte prefix, returns PCM bytes
-  - extractStreamId(byte[] frame): String — reads first 4 bytes as UTF-8
-  - reset(): void
-Used by: AgentSession.onAudioStreamStart()
+Used by: AgentSession
 
-=== NativeLibraryLoader (com.pairion.nativelib.whisper) ===
-Methods:
-  - load(): boolean [static, synchronized] — extracts classpath lib to temp, calls System.load()
-  - isLoaded(): boolean [static]
-  - loadedPath(): String [static]
-  - detectPlatform(): String [package-private, static] — returns "darwin-aarch64", "linux-x86_64", etc.
-Used by: DefaultWhisperCppNative via LibraryLoader functional interface
+=== ConcentusOpusEncoder implements OpusEncoderNative ===
+Wraps Concentus (io.github.jaredmdobson:concentus:1.0.2)
+- encodeFrame(byte[] pcmFrame): byte[] — 16-bit LE PCM → Opus frame
+- getSampleRate(): int
+- reset(): void
+
+=== ConcentusOpusDecoder implements OpusDecoderNative ===
+- decodeFrame(byte[] opusFrame): byte[] — Opus → 16-bit LE PCM at 16 kHz
+- reset(): void
+
+=== PiperTtsAdapter.resample() [static, package-private] ===
+Resamples 16-bit LE PCM from fromRate → toRate using linear interpolation.
+Used within PiperTtsAdapter.speak() when piperSampleRate != 16000.
+
+---
+## Section 16: Database Schema (Live)
+
+**No database.** This project has no relational database, NoSQL store, or persistence layer configured. All state is in-memory (WebSocket session map in PairionWebSocketHandler). No schema to dump.
+
+Memory and household persistence are future milestone work (pairion-memory and pairion-household modules are stubs).
+
+---
+## Section 17: Message Broker Configuration
+
+No message broker detected. No RabbitMQ, Kafka, or SQS dependencies or annotations found anywhere in src/.
+
+---
+
+## Section 18: Cache Layer
+
+No Redis or caching layer detected. No @Cacheable, @CacheEvict, CacheManager, or spring.cache/spring.redis configuration found anywhere in src/.
+
+---
+## Section 19: Environment Variable Inventory
+
+| Variable | Used In | Default | Required in Prod |
+|---|---|---|---|
+| ANTHROPIC_API_KEY | DefaultAnthropicClientWrapper — API key for Anthropic calls | (none) | YES (when llm=anthropic) |
+| PAIRION_HOME | ModelStartupService, DefaultWhisperCppNative, DefaultPiperTtsNative — model storage root | ~/.pairion | NO (defaults to ~/.pairion) |
+
+**Spring @Value properties** (set via application.yml, not env vars):
+
+| Property | Default | Used In |
+|---|---|---|
+| pairion.adapters.llm | (none — matchIfMissing=true→anthropic) | Adapter @ConditionalOnProperty selectors |
+| pairion.adapters.llm.anthropic.model | claude-sonnet-4-6 | AnthropicLlmAdapter |
+| pairion.adapters.openaicompat.baseUrl | http://localhost:1234/v1 | OpenAiCompatLlmAdapter |
+| pairion.adapters.openaicompat.model | gpt-4o-mini | OpenAiCompatLlmAdapter |
+| pairion.adapters.openaicompat.apiKey | (empty) | OpenAiCompatLlmAdapter |
+| pairion.adapters.openaicompat.connectTimeoutSeconds | 10 | DefaultOpenAiCompatClientWrapper |
+| pairion.adapters.openaicompat.requestTimeoutSeconds | 30 | DefaultOpenAiCompatClientWrapper |
+| pairion.adapters.tts.piper.voice | en_GB-alan-medium | ModelStartupService, DefaultPiperTtsNative |
+| pairion.adapters.tts.piper.length-scale | 1.0 | DefaultPiperTtsNative — controls speech rate |
+
+---
+## Section 20: Service Dependency Map
+
+```
+Pairion-Server → Depends On (external)
+-----------------------------------------
+LM Studio / Ollama:      http://localhost:1234/v1 (when llm=openaicompat; configurable)
+Anthropic API:           https://api.anthropic.com (when llm=anthropic; ANTHROPIC_API_KEY required)
+Open-Meteo Geocoding:    https://geocoding-api.open-meteo.com/v1/search
+                         (MapFocusTool + OpenMeteoWeatherTool, no API key required)
+Open-Meteo Forecast:     https://api.open-meteo.com/v1/forecast
+                         (OpenMeteoWeatherTool, no API key required)
+Hugging Face model hub:  (ModelDownloader download URLs for whisper/piper models — one-time on first run)
 ```
 
-## 16. DATABASE SCHEMA
+Standalone service — no inter-service HTTP dependencies at runtime beyond the above.
 
-No database. No ORM. No Flyway. No Hibernate. The project has no persistence layer at this milestone.
-
-```
-Database not available — no data store configured
+Downstream consumers:
+- Pairion (iOS/macOS client) — connects to /ws/v1 WebSocket and REST /v1/* endpoints on port 18789
 ```
 
-## 17. MESSAGE BROKER DETECTION
+---
+## Section 21: Known Technical Debt & Issues
 
-No message broker detected.
+### TODO/FIXME Scan
+No TODO/FIXME/XXX/HACK markers found in src/main/.
 
-```
-Broker: None
-```
+### Stub/Placeholder Patterns Detected (by design — milestone stubs)
 
-No RabbitMQ, Kafka, SQS, or any async messaging dependency. All communication is synchronous (REST) or real-time (WebSocket).
-
-## 18. CACHE DETECTION
-
-No Redis or caching layer detected.
-
-```
-Cache Provider: None
-```
-
-No `@Cacheable`, `@CacheEvict`, Redis, Caffeine, or EhCache dependencies or annotations.
-
-## 19. ENVIRONMENT VARIABLE INVENTORY
-
-```
-Variable              | Used In                                    | Default                    | Required in Prod
-----------------------|--------------------------------------------|----------------------------|------------------
-ANTHROPIC_API_KEY     | DefaultAnthropicClientWrapper (constructor)| None                       | YES — LLM unavailable without it
-PAIRION_HOME          | DefaultWhisperCppNative (constructor)      | ~/.pairion                 | NO (defaults to ~/.pairion)
-```
-
-Spring `@Value` properties:
-```
-pairion.adapters.llm                          | AnthropicLlmAdapter @ConditionalOnProperty | "anthropic" (matchIfMissing=true)
-pairion.adapters.llm.anthropic.model          | AnthropicLlmAdapter constructor            | "claude-sonnet-4-6"
-pairion.adapters.stt                          | WhisperCppSttAdapter @ConditionalOnProperty| "whispercpp" (matchIfMissing=true)
-pairion.stt.native.enabled                    | DefaultWhisperCppNative @ConditionalOnProperty | true (matchIfMissing=true)
-```
-
-## 20. SERVICE DEPENDENCY MAP
-
-Standalone service — no inter-service dependencies.
-
-**External dependencies:**
-```
-Anthropic API:        api.anthropic.com — called by DefaultAnthropicClientWrapper via anthropic-java SDK
-                      Auth: ANTHROPIC_API_KEY environment variable
-                      Protocol: HTTPS streaming (Messages API, /v1/messages)
-                      Model: claude-sonnet-4-6 (configurable via pairion.adapters.llm.anthropic.model)
-
-HuggingFace CDN:      huggingface.co/ggerganov/whisper.cpp — one-time model download
-                      URL: resolve/main/ggml-small.en.bin
-                      Auth: None (public)
-                      Triggered: first transcription when model not present at $PAIRION_HOME/models/whisper/
-
-whisper.cpp source:   github.com/ggerganov/whisper.cpp — cloned at build time (Maven initialize phase)
-                      Tag: v1.8.4
-```
-
-**Downstream consumers:** None (no other services call Pairion Server at this milestone).
-
-## 21. Known Technical Debt & Issues
-
-**TODO/PLACEHOLDER/STUB SCAN:**
-Grep results contain "stub" and "placeholder" in Javadoc comments only — not executable code gaps. All stub endpoints return well-formed (if empty/synthetic) responses, which is the intended M0 walking skeleton pattern. These are documented milestones, not incomplete code.
+The following are **intentional M0/M1 milestone stubs**, documented in Javadoc as such. They are NOT incomplete code masquerading as complete — they are explicitly scoped stubs for future milestones.
 
 | Issue | Location | Severity | Notes |
-|-------|----------|----------|-------|
-| REST controllers return hardcoded stubs | AdapterController, HouseholdController, MemoryController, SkillController | MEDIUM | Intentional M0 walking skeleton; full impl is later milestones |
-| DefaultSoulPromptProvider returns hardcoded prompt | pairion-agent/soul/DefaultSoulPromptProvider.java | MEDIUM | Intentional placeholder; SOUL system is later milestone |
-| DeviceIdentify.bearerToken not validated | PairionWebSocketHandler.handleDeviceIdentify() | HIGH | Field exists in protocol but is never authenticated; no auth layer at all |
-| No @ControllerAdvice / global exception handler | pairion-gateway/rest/ | MEDIUM | Unhandled exceptions return Spring Boot default error shape |
-| logstash-logback-encoder not wired | pom.xml + logback-spring.xml | LOW | Dependency declared but JSON layout not configured in logback-spring.xml |
-| No Spring Security | pairion-gateway | HIGH | All endpoints are open (intentional for M0; must be addressed before any network exposure) |
-| pairion-household, pairion-memory, pairion-skills modules empty | three modules | MEDIUM | Scaffold only — package-info.java exists, no implementation |
-| ModelDownloader not wired into Spring context | pairion-core/util/ModelDownloader.java | LOW | Class exists but not a @Component; whisper model download not automated on startup |
-| Weather tool hardcoded in AgentSession | AgentSession.java:onTranscriptFinal() | MEDIUM | get_current_weather ToolDefinition is hardcoded inline; no tool call dispatch or actual weather fetch implemented |
-| TTS SPI defined, no implementation | TtsAdapter.java | MEDIUM | Interface exists, no @Component implementation wired |
-| virtual threads not enabled in main config | application.yml | LOW | spring.threads.virtual.enabled=true only in test config, not main application.yml |
+|---|---|---|---|
+| Stub REST endpoints (return empty lists) | AdapterController, SkillController, MemoryController, HouseholdController | LOW | Documented as M0 stubs; real implementations are future milestone work |
+| Placeholder SOUL prompt | DefaultSoulPromptProvider | LOW | Returns hardcoded "Jarvis" prompt; full SOUL with memory context is a later milestone |
+| Device bearer token not validated | PairionWebSocketHandler.handleDeviceIdentify() | MEDIUM | Token received in DeviceIdentify but not checked; per Architecture §9 intentional for dev |
+| No @ControllerAdvice for REST | pairion-gateway (no GlobalExceptionHandler) | MEDIUM | Spring Boot default /error handler used; unhandled exceptions produce 500s |
+| No authentication layer | All REST and WebSocket endpoints | MEDIUM | By design for M1 dev phase; production auth is a later milestone |
+| pairion-household, pairion-memory, pairion-skills modules | All three modules | LOW | Package-info only; no implementation yet |
 
-## 22. Security Vulnerability Scan (Snyk)
+### Observations (not blocking, informational)
+- `pairion-agent/src/main/.../SoulPromptProvider.java` interface Javadoc explicitly says "the current implementation returns a hardcoded placeholder" — correctly documented
+- `DefaultPiperTtsNative.java:272` references "Upcall stub" in a comment about the C FFM callback — this is a code comment about the FFM binding mechanism, not an incomplete implementation
 
-Scan Date: 2026-04-19T17:10:00Z
+---
+## Section 22: Security Vulnerability Scan (Snyk)
+
+Scan Date: 2026-04-21T22:36:01Z
 Snyk CLI Version: 1.1303.0
 
 ### Dependency Vulnerabilities (Open Source)
-**EXIT CODE: 0 — PASS**
-
 Critical: 0
-High:     0
-Medium:   0
-Low:      0
-Total:    0 known vulnerabilities in dependencies.
+High: 0
+Medium: 0
+Low: 0
+**RESULT: PASS — No known vulnerabilities in dependencies.**
 
 ### Code Vulnerabilities (SAST)
-**EXIT CODE: 2 — Snyk Code scan not available** (authentication or feature flag issue; not a vulnerability finding)
-
-Errors:   N/A (scan unavailable)
-Warnings: N/A (scan unavailable)
+**RESULT: SKIPPED — Snyk Code returned HTTP 403 Forbidden (Snyk Code not enabled on this account/plan). Run `snyk code test` manually with appropriate credentials.**
 
 ### IaC Findings
-N/A — No Dockerfile or docker-compose.yml present.
+No Dockerfile, docker-compose, or Terraform files present — IaC scan not applicable.
 
+---
