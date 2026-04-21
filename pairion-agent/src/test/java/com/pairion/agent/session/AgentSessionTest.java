@@ -45,7 +45,7 @@ class AgentSessionTest {
         when(ttsAdapter.capabilities()).thenReturn(TtsCapabilities.unavailable());
         soulProvider = mock(SoulPromptProvider.class);
         toolDispatcher = mock(ToolDispatcher.class);
-        when(soulProvider.getSystemPrompt("test-session")).thenReturn("You are Alfred.");
+        when(soulProvider.getSystemPrompt("test-session")).thenReturn("You are Jarvis.");
         events = new ArrayList<>();
         session =
                 new AgentSession(

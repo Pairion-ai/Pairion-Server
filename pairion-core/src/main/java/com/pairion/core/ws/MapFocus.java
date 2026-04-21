@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 /**
  * Server-to-client command to pan and zoom the globe to a specific geographic location.
  *
- * <p>Emitted by the server when Alfred calls the {@code focus_map} tool during a turn. The client
+ * <p>Emitted by the server when Jarvis calls the {@code focus_map} tool during a turn. The client
  * should immediately animate the world map to centre on {@code lat}/{@code lon} at the requested
  * zoom level.
  *

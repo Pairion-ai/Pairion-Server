@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 public class DefaultSoulPromptProvider implements SoulPromptProvider {
 
     private static final String PLACEHOLDER_PROMPT =
-            "You are Alfred, a household AI assistant. You speak out loud — your responses will"
+            "You are Jarvis, a household AI assistant. You speak out loud — your responses will"
                 + " be read by a text-to-speech engine and heard through speakers.\n\n"
                 + "Rules:\n"
                 + "- ALWAYS respond in English only, regardless of any other language.\n"

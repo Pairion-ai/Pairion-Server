@@ -11,7 +11,7 @@ class SoulPromptProviderTest {
     void returnsPlaceholderPrompt() {
         DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
         String prompt = provider.getSystemPrompt("session-1");
-        assertThat(prompt).contains("Alfred");
+        assertThat(prompt).contains("Jarvis");
         assertThat(prompt).contains("household");
     }
 
