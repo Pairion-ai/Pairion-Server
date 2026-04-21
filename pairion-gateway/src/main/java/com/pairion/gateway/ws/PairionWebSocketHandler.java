@@ -15,6 +15,7 @@ import com.pairion.core.ws.DeviceIdentify;
 import com.pairion.core.ws.HeartbeatPing;
 import com.pairion.core.ws.HeartbeatPong;
 import com.pairion.core.ws.LlmTokenStream;
+import com.pairion.core.ws.ConversationEnded;
 import com.pairion.core.ws.MapClear;
 import com.pairion.core.ws.MapFocus;
 import com.pairion.core.ws.SessionOpened;
@@ -312,6 +313,9 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                                     mf.zoom()));
             case AgentSessionEvent.MapClearEvent ignored ->
                     objectMapper.writeValueAsString(new MapClear(MapClear.TYPE));
+            case AgentSessionEvent.ConversationEndedEvent ignored ->
+                    objectMapper.writeValueAsString(
+                            new ConversationEnded(ConversationEnded.TYPE));
         };
     }
 }

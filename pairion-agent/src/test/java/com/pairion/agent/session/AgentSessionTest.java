@@ -624,6 +624,62 @@ class AgentSessionTest {
         session.close();
     }
 
+    /** A dismissal transcript emits ConversationEndedEvent (covers the true branch of isConversationEndPhrase). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void conversationEndPhraseEmitsConversationEndedEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    consumer.accept(new LlmEvent.TokenDelta("Goodbye!"));
+                    consumer.accept(new LlmEvent.Stop(1));
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("goodbye", 500));
+
+        boolean hasConversationEnded = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.ConversationEndedEvent);
+        assertThat(hasConversationEnded).isTrue();
+    }
+
+    /** A normal transcript does NOT emit a ConversationEndedEvent (covers the false branch of isConversationEndPhrase). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void normalTranscriptDoesNotEmitConversationEndedEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    consumer.accept(new LlmEvent.TokenDelta("Sure."));
+                    consumer.accept(new LlmEvent.Stop(1));
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("What is the capital of France?", 800));
+
+        boolean hasConversationEnded = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.ConversationEndedEvent);
+        assertThat(hasConversationEnded).isFalse();
+    }
+
     /**
      * When get_current_weather returns latitude/longitude, a MapFocusEvent is automatically
      * emitted (covers the emitMapFocusFromWeather branch).
@@ -678,6 +734,51 @@ class AgentSessionTest {
         assertThat(focus.lon()).isEqualTo(-96.8067);
         assertThat(focus.label()).isEqualTo("Dallas, United States");
         assertThat(focus.zoom()).isEqualTo("city");
+
+        session.close();
+    }
+
+    /**
+     * When get_current_weather returns latitude but NOT longitude, no MapFocusEvent is emitted
+     * (covers the false branch of result.containsKey("longitude")).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void weatherToolWithLatButNoLonDoesNotEmitMapFocus() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-p", "get_current_weather", Map.of("city", "Paris")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Partial data for Paris."));
+                        consumer.accept(new LlmEvent.Stop(4));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        // Result has latitude but no longitude — should NOT trigger emitMapFocusFromWeather
+        when(toolDispatcher.dispatch("get_current_weather", Map.of("city", "Paris")))
+                .thenReturn(Map.of("latitude", 48.8566, "temperature_f", 55.0));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Weather in Paris?", 1000));
+
+        boolean hasMapFocus = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.MapFocusEvent);
+        assertThat(hasMapFocus).isFalse();
 
         session.close();
     }

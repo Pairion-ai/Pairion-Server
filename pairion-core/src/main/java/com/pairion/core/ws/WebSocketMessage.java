@@ -34,6 +34,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
     @JsonSubTypes.Type(value = UnderBreathAck.class, name = "UnderBreathAck"),
     @JsonSubTypes.Type(value = MapFocus.class, name = "MapFocus"),
     @JsonSubTypes.Type(value = MapClear.class, name = "MapClear"),
+    @JsonSubTypes.Type(value = ConversationEnded.class, name = "ConversationEnded"),
 })
 public sealed interface WebSocketMessage
         permits DeviceIdentify,
@@ -55,7 +56,8 @@ public sealed interface WebSocketMessage
                 ToolCallCompleted,
                 UnderBreathAck,
                 MapFocus,
-                MapClear {
+                MapClear,
+                ConversationEnded {
 
     /**
      * Returns the protocol-level type discriminator for this message.

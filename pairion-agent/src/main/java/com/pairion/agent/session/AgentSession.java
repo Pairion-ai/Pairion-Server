@@ -89,6 +89,16 @@ public class AgentSession {
             "clear the map", "zoom out", "we're done", "we are done");
 
     /**
+     * Phrases that, when detected in a user transcript, signal the end of the conversation.
+     * A superset may overlap with {@link #MAP_CLEAR_PHRASES}; both checks run independently.
+     * Checked case-insensitively as substrings.
+     */
+    private static final List<String> CONVERSATION_END_PHRASES = List.of(
+            "that's all", "thats all", "goodbye", "good bye", "bye bye", "see you later",
+            "we're done", "we are done", "stop listening", "that will be all",
+            "thank you goodbye", "thanks goodbye");
+
+    /**
      * Nanosecond timestamp captured at the start of {@link #onSpeechEnded()} to anchor Stage A
      * (STT) and Stage T (Total) latency measurements. Reset at the beginning of each turn.
      */
@@ -247,6 +257,17 @@ public class AgentSession {
     }
 
     /**
+     * Returns {@code true} when the transcript contains a dismissal phrase that should end the
+     * conversation session and return the client to wake-word listening.
+     *
+     * @param transcript the STT transcript, compared case-insensitively
+     */
+    private boolean isConversationEndPhrase(String transcript) {
+        String lower = transcript.toLowerCase();
+        return CONVERSATION_END_PHRASES.stream().anyMatch(lower::contains);
+    }
+
+    /**
      * Emits a {@link AgentSessionEvent.MapFocusEvent} from a successful {@code focus_map} tool
      * result and starts the 2-minute auto-clear timer.
      *
@@ -297,6 +318,11 @@ public class AgentSession {
             cancelClear();
             eventSink.accept(new AgentSessionEvent.MapClearEvent());
             log.info("map.clear.phrase: transcript={}", transcript);
+        }
+        // If the user said a dismissal phrase, end the conversation session.
+        if (isConversationEndPhrase(transcript)) {
+            eventSink.accept(new AgentSessionEvent.ConversationEndedEvent());
+            log.info("conversation.end.phrase: transcript={}", transcript);
         }
 
         transitionState(AgentState.THINKING);

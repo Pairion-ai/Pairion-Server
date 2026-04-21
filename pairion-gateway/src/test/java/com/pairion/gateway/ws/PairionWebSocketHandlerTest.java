@@ -317,6 +317,17 @@ class PairionWebSocketHandlerTest {
     }
 
     @Test
+    void sendAgentEventConversationEndedSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.ConversationEndedEvent());
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("ConversationEnded");
+    }
+
+    @Test
     void afterConnectionClosedWithNoRegisteredSessionDoesNotThrow() {
         // Close a session that was never registered (removed == null branch)
         handler.afterConnectionClosed(session, CloseStatus.NORMAL);

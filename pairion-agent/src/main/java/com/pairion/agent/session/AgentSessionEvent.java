@@ -18,7 +18,8 @@ public sealed interface AgentSessionEvent
                 AgentSessionEvent.AudioChunkEvent,
                 AgentSessionEvent.AudioStreamEndEvent,
                 AgentSessionEvent.MapFocusEvent,
-                AgentSessionEvent.MapClearEvent {
+                AgentSessionEvent.MapClearEvent,
+                AgentSessionEvent.ConversationEndedEvent {
 
     /**
      * Agent state transition event.
@@ -112,4 +113,11 @@ public sealed interface AgentSessionEvent
      * user utters an ending phrase such as "Go back" or "that's all".
      */
     record MapClearEvent() implements AgentSessionEvent {}
+
+    /**
+     * Commands the client to exit conversation mode and return to wake-word listening.
+     *
+     * <p>Emitted when the user utters a dismissal phrase such as "that's all" or "goodbye".
+     */
+    record ConversationEndedEvent() implements AgentSessionEvent {}
 }

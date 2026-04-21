@@ -268,4 +268,14 @@ class WebSocketMessageTest {
         assertThat(((MapClear) deserialized).type()).isEqualTo("MapClear");
         assertThat(MapClear.TYPE).isEqualTo("MapClear");
     }
+
+    @Test
+    void conversationEndedRoundTrip() throws Exception {
+        ConversationEnded msg = new ConversationEnded("ConversationEnded");
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(ConversationEnded.class);
+        assertThat(((ConversationEnded) deserialized).type()).isEqualTo("ConversationEnded");
+        assertThat(ConversationEnded.TYPE).isEqualTo("ConversationEnded");
+    }
 }
