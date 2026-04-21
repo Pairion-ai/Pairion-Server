@@ -35,4 +35,21 @@ class AgentSessionEventTest {
         AgentSessionEvent.LlmTokenEvent event = new AgentSessionEvent.LlmTokenEvent("token");
         assertThat(event.delta()).isEqualTo("token");
     }
+
+    @Test
+    void mapFocusEvent() {
+        AgentSessionEvent.MapFocusEvent event =
+                new AgentSessionEvent.MapFocusEvent(35.6762, 139.6503, "Tokyo, Japan", "city");
+        assertThat(event.lat()).isEqualTo(35.6762);
+        assertThat(event.lon()).isEqualTo(139.6503);
+        assertThat(event.label()).isEqualTo("Tokyo, Japan");
+        assertThat(event.zoom()).isEqualTo("city");
+        assertThat(event).isInstanceOf(AgentSessionEvent.class);
+    }
+
+    @Test
+    void mapClearEvent() {
+        AgentSessionEvent.MapClearEvent event = new AgentSessionEvent.MapClearEvent();
+        assertThat(event).isInstanceOf(AgentSessionEvent.class);
+    }
 }

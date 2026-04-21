@@ -6,6 +6,7 @@ import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.agent.tools.ToolDispatcher;
+import com.pairion.agent.tools.map.MapFocusTool;
 import com.pairion.agent.util.MarkdownStripper;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
@@ -17,6 +18,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +74,20 @@ public class AgentSession {
     private SttAdapter.SttSession sttSession;
     private AgentState currentState = AgentState.IDLE;
 
+    /** Scheduler used solely to emit {@link AgentSessionEvent.MapClearEvent} after 2-minute idle. */
+    private final ScheduledExecutorService clearScheduler;
+
+    /** Pending clear timer, or {@code null} when no map focus is active. */
+    private volatile ScheduledFuture<?> clearFuture;
+
+    /**
+     * Phrases that, when detected in a user transcript, trigger an immediate map clear.
+     * Checked case-insensitively as substrings.
+     */
+    private static final List<String> MAP_CLEAR_PHRASES = List.of(
+            "go back", "that's all", "thats all", "never mind", "nevermind",
+            "clear the map", "zoom out", "we're done", "we are done");
+
     /**
      * Nanosecond timestamp captured at the start of {@link #onSpeechEnded()} to anchor Stage A
      * (STT) and Stage T (Total) latency measurements. Reset at the beginning of each turn.
@@ -101,6 +120,11 @@ public class AgentSession {
         this.soulProvider = soulProvider;
         this.toolDispatcher = toolDispatcher;
         this.eventSink = eventSink;
+        this.clearScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "map-clear-" + sessionId);
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     /**
@@ -157,6 +181,64 @@ public class AgentSession {
     }
 
     /**
+     * Releases the map-clear scheduler. Call this when the WebSocket session is closed to avoid
+     * thread leaks.
+     */
+    public void close() {
+        cancelClear();
+        clearScheduler.shutdownNow();
+    }
+
+    /**
+     * Schedules a {@link AgentSessionEvent.MapClearEvent} 2 minutes from now, cancelling any
+     * previously scheduled clear.
+     */
+    private void rescheduleClear() {
+        cancelClear();
+        clearFuture = clearScheduler.schedule(
+                () -> eventSink.accept(new AgentSessionEvent.MapClearEvent()),
+                2, TimeUnit.MINUTES);
+    }
+
+    /**
+     * Cancels any pending map-clear timer without emitting the event.
+     */
+    private void cancelClear() {
+        ScheduledFuture<?> f = clearFuture;
+        if (f != null) {
+            f.cancel(false);
+            clearFuture = null;
+        }
+    }
+
+    /**
+     * Returns {@code true} when the transcript contains an ending phrase that should clear the map.
+     *
+     * @param transcript the STT transcript, compared case-insensitively
+     */
+    private boolean isMapClearPhrase(String transcript) {
+        String lower = transcript.toLowerCase();
+        return MAP_CLEAR_PHRASES.stream().anyMatch(lower::contains);
+    }
+
+    /**
+     * Emits a {@link AgentSessionEvent.MapFocusEvent} from a successful {@code focus_map} tool
+     * result and starts the 2-minute auto-clear timer.
+     *
+     * @param result the tool result map containing {@code lat}, {@code lon}, {@code label},
+     *               {@code zoom}
+     */
+    private void emitMapFocus(Map<String, Object> result) {
+        double lat = ((Number) result.get("lat")).doubleValue();
+        double lon = ((Number) result.get("lon")).doubleValue();
+        String label = (String) result.get("label");
+        String zoom = (String) result.get("zoom");
+        eventSink.accept(new AgentSessionEvent.MapFocusEvent(lat, lon, label, zoom));
+        rescheduleClear();
+        log.info("map.focus.emitted: label={}, lat={}, lon={}, zoom={}", label, lat, lon, zoom);
+    }
+
+    /**
      * Handles an STT event by forwarding it and triggering the LLM phase on final transcript.
      *
      * @param event the STT event
@@ -185,6 +267,13 @@ public class AgentSession {
      * @param stageAMs Stage A (STT) latency in milliseconds
      */
     private void onTranscriptFinal(String transcript, long stageAMs) {
+        // If the user said something that ends the map discussion, clear immediately.
+        if (isMapClearPhrase(transcript)) {
+            cancelClear();
+            eventSink.accept(new AgentSessionEvent.MapClearEvent());
+            log.info("map.clear.phrase: transcript={}", transcript);
+        }
+
         transitionState(AgentState.THINKING);
 
         String systemPrompt = soulProvider.getSystemPrompt(sessionId);
@@ -239,6 +328,11 @@ public class AgentSession {
                                 tc.toolCallId(), tc.toolName(), tc.input()));
                 Map<String, Object> result =
                         toolDispatcher.dispatch(tc.toolName(), tc.input());
+                // Side-effect: notify client to focus the map immediately on success.
+                if (MapFocusTool.TOOL_NAME.equals(tc.toolName())
+                        && !result.containsKey("error")) {
+                    emitMapFocus(result);
+                }
                 eventSink.accept(
                         new AgentSessionEvent.ToolCallCompletedEvent(
                                 tc.toolCallId(), tc.toolName(), result));
@@ -465,7 +559,38 @@ public class AgentSession {
                                                         "string",
                                                         "description",
                                                         "City name, e.g. Dallas")),
-                                "required", List.of("city"))));
+                                "required", List.of("city"))),
+                new ToolDefinition(
+                        "focus_map",
+                        "Pan and zoom the world map to a geographic location. Call this whenever"
+                                + " the user mentions or asks about a specific place — city,"
+                                + " region, country, or landmark. Choose zoom based on scope:"
+                                + " 'city' for a specific city or landmark, 'region' for a"
+                                + " state/prefecture/province, 'country' for an entire country,"
+                                + " 'continent' for a continental region. Default to 'city' for"
+                                + " specific locations.",
+                        Map.of(
+                                "type", "object",
+                                "properties",
+                                        Map.of(
+                                                "location",
+                                                Map.of(
+                                                        "type", "string",
+                                                        "description",
+                                                        "Place name to geocode and focus on,"
+                                                                + " e.g. 'Tokyo', 'Okinawa"
+                                                                + " Prefecture', 'Japan'"),
+                                                "zoom",
+                                                Map.of(
+                                                        "type", "string",
+                                                        "enum",
+                                                        List.of("continent", "country",
+                                                                "region", "city"),
+                                                        "description",
+                                                        "Zoom level: continent, country,"
+                                                                + " region (state/province),"
+                                                                + " or city")),
+                                "required", List.of("location"))));
     }
 
     private void transitionState(AgentState newState) {

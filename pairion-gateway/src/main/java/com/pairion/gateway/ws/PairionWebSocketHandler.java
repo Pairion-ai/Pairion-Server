@@ -15,6 +15,8 @@ import com.pairion.core.ws.DeviceIdentify;
 import com.pairion.core.ws.HeartbeatPing;
 import com.pairion.core.ws.HeartbeatPong;
 import com.pairion.core.ws.LlmTokenStream;
+import com.pairion.core.ws.MapClear;
+import com.pairion.core.ws.MapFocus;
 import com.pairion.core.ws.SessionOpened;
 import com.pairion.core.ws.SpeechEnded;
 import com.pairion.core.ws.ToolCallCompleted;
@@ -158,7 +160,10 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         log.info("WebSocket connection closed: sessionId={}, status={}", session.getId(), status);
-        sessions.remove(session.getId());
+        AgentSession removed = sessions.remove(session.getId());
+        if (removed != null) {
+            removed.close();
+        }
     }
 
     /**
@@ -301,6 +306,12 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                             new AudioStreamEnd(AudioStreamEnd.TYPE, ae.streamId(), ae.reason()));
             case AgentSessionEvent.AudioChunkEvent ignored ->
                     null; // handled as binary above
+            case AgentSessionEvent.MapFocusEvent mf ->
+                    objectMapper.writeValueAsString(
+                            new MapFocus(MapFocus.TYPE, mf.lat(), mf.lon(), mf.label(),
+                                    mf.zoom()));
+            case AgentSessionEvent.MapClearEvent ignored ->
+                    objectMapper.writeValueAsString(new MapClear(MapClear.TYPE));
         };
     }
 }

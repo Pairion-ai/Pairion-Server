@@ -16,7 +16,9 @@ public sealed interface AgentSessionEvent
                 AgentSessionEvent.ToolCallCompletedEvent,
                 AgentSessionEvent.AudioStreamStartEvent,
                 AgentSessionEvent.AudioChunkEvent,
-                AgentSessionEvent.AudioStreamEndEvent {
+                AgentSessionEvent.AudioStreamEndEvent,
+                AgentSessionEvent.MapFocusEvent,
+                AgentSessionEvent.MapClearEvent {
 
     /**
      * Agent state transition event.
@@ -91,4 +93,23 @@ public sealed interface AgentSessionEvent
      * @param reason the end reason ({@code "normal"}, {@code "interrupted"}, or {@code "error"})
      */
     record AudioStreamEndEvent(String streamId, String reason) implements AgentSessionEvent {}
+
+    /**
+     * Commands the client to pan and zoom the world map to a specific geographic location.
+     *
+     * @param lat latitude in decimal degrees
+     * @param lon longitude in decimal degrees
+     * @param label human-readable display label (e.g. "Tokyo, Japan")
+     * @param zoom zoom level: {@code continent}, {@code country}, {@code region}, or {@code city}
+     */
+    record MapFocusEvent(double lat, double lon, String label, String zoom)
+            implements AgentSessionEvent {}
+
+    /**
+     * Commands the client to clear the current map focus and resume globe auto-scroll.
+     *
+     * <p>Emitted after a 2-minute idle timeout since the last {@link MapFocusEvent}, or when the
+     * user utters an ending phrase such as "Go back" or "that's all".
+     */
+    record MapClearEvent() implements AgentSessionEvent {}
 }

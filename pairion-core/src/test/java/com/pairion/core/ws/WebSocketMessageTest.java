@@ -243,4 +243,29 @@ class WebSocketMessageTest {
         WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
         assertThat(((UnderBreathAck) deserialized).acknowledgementType()).isNull();
     }
+
+    @Test
+    void mapFocusRoundTrip() throws Exception {
+        MapFocus msg = new MapFocus("MapFocus", 35.6762, 139.6503, "Tokyo, Japan", "city");
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(MapFocus.class);
+        MapFocus result = (MapFocus) deserialized;
+        assertThat(result.type()).isEqualTo("MapFocus");
+        assertThat(result.lat()).isEqualTo(35.6762);
+        assertThat(result.lon()).isEqualTo(139.6503);
+        assertThat(result.label()).isEqualTo("Tokyo, Japan");
+        assertThat(result.zoom()).isEqualTo("city");
+        assertThat(MapFocus.TYPE).isEqualTo("MapFocus");
+    }
+
+    @Test
+    void mapClearRoundTrip() throws Exception {
+        MapClear msg = new MapClear("MapClear");
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(MapClear.class);
+        assertThat(((MapClear) deserialized).type()).isEqualTo("MapClear");
+        assertThat(MapClear.TYPE).isEqualTo("MapClear");
+    }
 }
