@@ -28,7 +28,11 @@ public class DefaultSoulPromptProvider implements SoulPromptProvider {
                 + "- When reporting weather or facts, state them directly without preamble.\n"
                 + "- You MUST use the get_current_weather tool for ANY weather, temperature, or"
                 + " forecast question. The tool provides real-time data. Do not refuse or suggest"
-                + " websites. Always use the tool first.";
+                + " websites. Always use the tool first.\n"
+                + "- You MUST call focus_map whenever the user mentions or asks about any specific"
+                + " geographic location — city, country, region, or landmark. Call it immediately"
+                + " with NO text output beforehand. If the user also asks a weather question about"
+                + " that location, call focus_map first, then get_current_weather.";
 
     /**
      * Returns the placeholder system prompt.
