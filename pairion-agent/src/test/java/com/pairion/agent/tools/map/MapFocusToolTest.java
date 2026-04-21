@@ -161,4 +161,26 @@ class MapFocusToolTest {
 
         assertThat(result).containsEntry("label", "SomePlace");
     }
+
+    /** Response with no "results" key (isArray() false) is treated as not-found — covers !isArray() branch. */
+    @Test
+    void missingResultsKeyReturnsLocationNotFound() throws Exception {
+        // No "results" key → json.path("results") returns MissingNode → isArray() = false
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(200);
+        when(response.body()).thenReturn("{}");
+        when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+                .thenReturn(response);
+
+        Map<String, Object> result = tool.execute(Map.of("location", "Nowhere"));
+        assertThat(result).containsEntry("error", "location_not_found");
+    }
+
+    /** Default (no-arg) constructor builds successfully — covers the production constructor path. */
+    @Test
+    void defaultConstructorBuildsSuccessfully() {
+        MapFocusTool defaultTool = new MapFocusTool();
+        assertThat(defaultTool).isNotNull();
+        assertThat(defaultTool.name()).isEqualTo("focus_map");
+    }
 }

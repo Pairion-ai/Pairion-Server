@@ -195,9 +195,16 @@ public class AgentSession {
      */
     private void rescheduleClear() {
         cancelClear();
-        clearFuture = clearScheduler.schedule(
-                () -> eventSink.accept(new AgentSessionEvent.MapClearEvent()),
-                2, TimeUnit.MINUTES);
+        clearFuture = clearScheduler.schedule(this::emitTimedMapClear, 2, TimeUnit.MINUTES);
+    }
+
+    /**
+     * Emits the timer-driven {@link AgentSessionEvent.MapClearEvent}. Extracted from the lambda
+     * in {@link #rescheduleClear()} so that unit tests can invoke it directly without waiting
+     * 2 minutes.
+     */
+    void emitTimedMapClear() {
+        eventSink.accept(new AgentSessionEvent.MapClearEvent());
     }
 
     /**

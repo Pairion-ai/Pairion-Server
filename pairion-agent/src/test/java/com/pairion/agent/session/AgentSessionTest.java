@@ -13,6 +13,7 @@ import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.agent.tools.ToolDispatcher;
+import com.pairion.agent.tools.map.MapFocusTool;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
 import com.pairion.core.stt.SttEvent;
@@ -409,5 +410,217 @@ class AgentSessionTest {
         StringBuilder text = new StringBuilder();
         session.handleLlmEvent(new LlmEvent.Stop(5), text, accum);
         assertThat(accum).isEmpty();
+    }
+
+    /** close() shuts down the scheduler without throwing (no active future). */
+    @Test
+    void sessionCloseDoesNotThrow() {
+        // No exception expected — covers close(), cancelClear() (no future), shutdownNow()
+        session.close();
+    }
+
+    /** close() with an active clear future cancels it (covers cancelClear branch when future != null). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void sessionCloseWithActiveFutureCancelsFuture() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        // First LLM call → focus_map tool; second call → text, so the loop exits.
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-map", MapFocusTool.TOOL_NAME, Map.of("location", "Tokyo")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Tokyo is in Japan."));
+                        consumer.accept(new LlmEvent.Stop(4));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(MapFocusTool.TOOL_NAME, Map.of("location", "Tokyo")))
+                .thenReturn(Map.of("lat", 35.6762, "lon", 139.6503,
+                        "label", "Tokyo, Japan", "zoom", "city", "status", "ok"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show me Tokyo.", 1000));
+
+        // clearFuture is now scheduled — close() must cancel it (covers cancelClear non-null branch)
+        session.close();
+    }
+
+    /** A transcript containing a map-clear phrase emits MapClearEvent before transitioning to thinking. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void mapClearPhraseEmitsMapClearEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    consumer.accept(new LlmEvent.TokenDelta("Cleared."));
+                    consumer.accept(new LlmEvent.Stop(1));
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        session.onAudioStreamStart("stream-1");
+        // "go back" is in MAP_CLEAR_PHRASES
+        sttConsumer[0].accept(new SttEvent.Final("go back", 500));
+
+        boolean hasMapClear = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.MapClearEvent);
+        assertThat(hasMapClear).isTrue();
+
+        // MapClearEvent must appear before the THINKING state change
+        int mapClearIdx = -1, thinkingIdx = -1;
+        for (int i = 0; i < events.size(); i++) {
+            if (events.get(i) instanceof AgentSessionEvent.MapClearEvent && mapClearIdx < 0) mapClearIdx = i;
+            if (events.get(i) instanceof AgentSessionEvent.StateChangeEvent sc
+                    && sc.state() == AgentState.THINKING && thinkingIdx < 0) thinkingIdx = i;
+        }
+        assertThat(mapClearIdx).isLessThan(thinkingIdx);
+    }
+
+    /** A normal transcript does NOT emit a MapClearEvent. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void normalTranscriptDoesNotEmitMapClearEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    consumer.accept(new LlmEvent.TokenDelta("Sure thing."));
+                    consumer.accept(new LlmEvent.Stop(2));
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("What is the weather?", 1000));
+
+        boolean hasMapClear = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.MapClearEvent);
+        assertThat(hasMapClear).isFalse();
+    }
+
+    /** focus_map tool error does NOT emit a MapFocusEvent (covers the false branch of !result.containsKey("error")). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void mapFocusToolErrorDoesNotEmitMapFocusEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-err", MapFocusTool.TOOL_NAME, Map.of("location", "Xyzzy")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Location not found."));
+                        consumer.accept(new LlmEvent.Stop(3));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        // Tool returns an error map — emitMapFocus must NOT be called
+        when(toolDispatcher.dispatch(MapFocusTool.TOOL_NAME, Map.of("location", "Xyzzy")))
+                .thenReturn(Map.of("error", "not_found", "status", "no_results"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Find Xyzzy.", 500));
+
+        boolean hasMapFocus = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.MapFocusEvent);
+        assertThat(hasMapFocus).isFalse();
+    }
+
+    /** emitTimedMapClear() fires the scheduled MapClearEvent synchronously (covers timer lambda). */
+    @Test
+    void emitTimedMapClearFiresMapClearEvent() {
+        session.emitTimedMapClear();
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0)).isInstanceOf(AgentSessionEvent.MapClearEvent.class);
+    }
+
+    /** focus_map tool success emits a MapFocusEvent with correct coordinates. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void mapFocusToolSuccessEmitsMapFocusEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-1", MapFocusTool.TOOL_NAME, Map.of("location", "Paris")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Paris is the capital of France."));
+                        consumer.accept(new LlmEvent.Stop(6));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(MapFocusTool.TOOL_NAME, Map.of("location", "Paris")))
+                .thenReturn(Map.of("lat", 48.8566, "lon", 2.3522,
+                        "label", "Paris, France", "zoom", "city", "status", "ok"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show me Paris on the map.", 800));
+
+        boolean hasMapFocus = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.MapFocusEvent);
+        assertThat(hasMapFocus).isTrue();
+
+        AgentSessionEvent.MapFocusEvent focus = (AgentSessionEvent.MapFocusEvent) events.stream()
+                .filter(e -> e instanceof AgentSessionEvent.MapFocusEvent)
+                .findFirst().orElseThrow();
+        assertThat(focus.lat()).isEqualTo(48.8566);
+        assertThat(focus.lon()).isEqualTo(2.3522);
+        assertThat(focus.label()).isEqualTo("Paris, France");
+        assertThat(focus.zoom()).isEqualTo("city");
+
+        // Scheduler was closed to avoid thread leaks after test
+        session.close();
     }
 }

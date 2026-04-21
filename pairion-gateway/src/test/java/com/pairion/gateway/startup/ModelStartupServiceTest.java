@@ -107,6 +107,19 @@ class ModelStartupServiceTest {
         assertThat(result.toString()).contains("model.bin");
     }
 
+    /** ONNX download fails → short-circuit in (onnxOk && configOk): covers the onnxOk=false branch. */
+    @Test
+    void downloadPiperModelOnnxFailsShortCircuits() {
+        ModelDownloader downloader = mock(ModelDownloader.class);
+        // Both calls return false; first (onnxOk=false) short-circuits the && condition
+        when(downloader.download(anyString(), any(Path.class), anyString())).thenReturn(false);
+
+        ModelStartupService service = new ModelStartupService("en_GB-alan-medium", downloader);
+        service.downloadPiperModel(); // Must not throw
+
+        verify(downloader, times(2)).download(anyString(), any(Path.class), anyString());
+    }
+
     @Test
     void noDownloadsWhenDownloaderThrows() throws InterruptedException {
         ModelDownloader downloader = mock(ModelDownloader.class);

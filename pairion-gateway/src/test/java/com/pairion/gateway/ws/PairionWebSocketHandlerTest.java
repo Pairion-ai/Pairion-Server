@@ -290,4 +290,35 @@ class PairionWebSocketHandlerTest {
                                 new byte[] {1, 2}));
         assertThat(result).isNull();
     }
+
+    @Test
+    void sendAgentEventMapFocusSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.MapFocusEvent(
+                        35.6762, 139.6503, "Tokyo, Japan", "city"));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        String payload = captor.getValue().getPayload();
+        assertThat(payload).contains("MapFocus");
+        assertThat(payload).contains("Tokyo, Japan");
+    }
+
+    @Test
+    void sendAgentEventMapClearSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.MapClearEvent());
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        assertThat(captor.getValue().getPayload()).contains("MapClear");
+    }
+
+    @Test
+    void afterConnectionClosedWithNoRegisteredSessionDoesNotThrow() {
+        // Close a session that was never registered (removed == null branch)
+        handler.afterConnectionClosed(session, CloseStatus.NORMAL);
+    }
 }
