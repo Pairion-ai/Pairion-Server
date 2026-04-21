@@ -1,0 +1,1384 @@
+openapi: 3.0.3
+
+info:
+  title: Pairion WebSocket Protocol
+  version: 0.3.0
+  description: |
+    This specification documents the Pairion Server communication surface.
+
+    Pairion-Server is **not** a conventional REST API. The primary communication
+    channel is a WebSocket endpoint at `ws://localhost:18789/ws/v1` over which
+    JSON message envelopes and binary Opus audio frames are exchanged.
+
+    ## Protocol Overview
+
+    After the WebSocket handshake the client MUST immediately send a
+    `DeviceIdentify` message. The server responds with `SessionOpened` confirming
+    the session. All subsequent messages use the `type` field as the polymorphic
+    discriminator (Jackson `@JsonTypeInfo(use = Id.NAME, property = "type")`).
+
+    Binary frames carry Opus-encoded audio. Every binary frame is prefixed with a
+    4-byte stream-ID (UTF-8, space-padded to exactly 4 bytes) followed by the raw
+    Opus packet payload.
+
+    ## Authentication
+
+    Authentication is performed at the WebSocket message layer, not at the HTTP
+    layer. The client includes a `bearerToken` in the `DeviceIdentify` message
+    sent immediately after the WebSocket upgrade. There is no HTTP `Authorization`
+    header mechanism.
+
+    ## HTTP REST Endpoints
+
+    The server also exposes a small set of HTTP REST endpoints under `/v1/` for
+    health checks, configuration inspection, household/user management, memory
+    browsing, skill cataloguing, adapter status, and client log forwarding. These
+    are documented in the `paths` section below the WebSocket entry.
+
+    ## Client → Server Messages
+    `DeviceIdentify`, `HeartbeatPong`, `WakeWordDetected`, `AudioStreamStart`,
+    `SpeechEnded`, `AudioStreamEnd`, `TextMessage`
+
+    ## Server → Client Messages
+    `SessionOpened`, `SessionClosed`, `HeartbeatPing`, `Error`,
+    `AgentStateChange`, `TranscriptPartial`, `TranscriptFinal`, `LlmTokenStream`,
+    `ToolCallStarted`, `ToolCallCompleted`, `UnderBreathAck`, `AudioStreamStart`
+    (TTS), `AudioStreamEnd` (TTS), `MapFocus`, `MapClear`, `ConversationEnded`
+
+servers:
+  - url: ws://localhost:18789
+    description: Local development WebSocket server
+  - url: http://localhost:18789
+    description: Local development HTTP server (REST endpoints)
+
+tags:
+  - name: Session
+    description: WebSocket session lifecycle — connect, identify, heartbeat, error
+  - name: Audio
+    description: Binary Opus audio streaming — microphone input and TTS output
+  - name: Speech
+    description: Speech-to-text lifecycle and agent state transitions
+  - name: Tools
+    description: LLM tool call observability messages
+  - name: Map
+    description: Globe map pan/zoom control messages
+  - name: HUD
+    description: Conversation lifecycle and under-breath acknowledgements
+  - name: Health
+    description: Server health and version endpoints
+  - name: Household
+    description: Household and user management endpoints
+  - name: Memory
+    description: Episodic memory browsing endpoints
+  - name: Skills
+    description: Skill catalog endpoints
+  - name: Adapters
+    description: Adapter configuration and status endpoints
+  - name: Logs
+    description: Client log forwarding endpoint
+
+paths:
+
+  # ── WebSocket endpoint ────────────────────────────────────────────────────
+
+  /ws/v1:
+    get:
+      summary: WebSocket connection endpoint
+      operationId: connectWebSocket
+      tags: [Session]
+      description: |
+        Upgrade this HTTP connection to a WebSocket. After the handshake all
+        communication uses JSON text frames (message envelopes) or binary frames
+        (Opus audio). The HTTP path is `/ws/v1`; the server listens on port 18789.
+
+        ### Handshake sequence
+        1. Client upgrades to WebSocket (`Connection: Upgrade`, `Upgrade: websocket`).
+        2. Client sends `DeviceIdentify` JSON text frame immediately.
+        3. Server responds with `SessionOpened` confirming the session ID.
+        4. Normal protocol exchange begins (heartbeat, voice, tool, map messages).
+
+        ### Binary frame format
+        Every binary frame contains:
+        - **Bytes 0–3**: stream-ID prefix — 4 bytes, UTF-8, space-padded on the right.
+        - **Bytes 4–N**: raw Opus packet payload.
+
+        ### Client → Server message types
+        | Type | Purpose |
+        |---|---|
+        | `DeviceIdentify` | Authenticate and open a session |
+        | `HeartbeatPong` | Respond to server ping |
+        | `WakeWordDetected` | Notify wake-word detection |
+        | `AudioStreamStart` | Begin a microphone audio stream |
+        | `SpeechEnded` | Signal end of user utterance |
+        | `AudioStreamEnd` | Terminate an audio stream |
+        | `TextMessage` | Send text input (non-voice) |
+
+        ### Server → Client message types
+        | Type | Purpose |
+        |---|---|
+        | `SessionOpened` | Confirm session established |
+        | `SessionClosed` | Notify session termination |
+        | `HeartbeatPing` | Keepalive ping |
+        | `Error` | Report a protocol or server error |
+        | `AgentStateChange` | Notify agent state transition |
+        | `TranscriptPartial` | Interim STT transcript |
+        | `TranscriptFinal` | Final STT transcript |
+        | `LlmTokenStream` | Streaming LLM token delta |
+        | `ToolCallStarted` | LLM tool call initiated |
+        | `ToolCallCompleted` | LLM tool call finished |
+        | `UnderBreathAck` | Under-breath conversational acknowledgement |
+        | `AudioStreamStart` | TTS audio stream starting |
+        | `AudioStreamEnd` | TTS audio stream ended |
+        | `MapFocus` | Pan/zoom globe to a location |
+        | `MapClear` | Clear map focus, resume auto-scroll |
+        | `ConversationEnded` | Conversation session terminated |
+      responses:
+        '101':
+          description: Switching Protocols — WebSocket upgrade successful
+        '400':
+          description: Bad Request — invalid upgrade headers
+        '401':
+          description: Unauthorized — authentication will be rejected at the DeviceIdentify step
+
+  # ── REST: Health & Version ────────────────────────────────────────────────
+
+  /v1/health:
+    get:
+      summary: Server health check
+      operationId: getHealth
+      tags: [Health]
+      description: Returns the current health status of the server.
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /v1/version:
+    get:
+      summary: Server version information
+      operationId: getVersion
+      tags: [Health]
+      description: Returns version, build time, and git commit for the running server.
+      responses:
+        '200':
+          description: Version information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionResponse'
+
+  # ── REST: Household ────────────────────────────────────────────────────────
+
+  /v1/household:
+    get:
+      summary: Get household summary
+      operationId: getHousehold
+      tags: [Household]
+      description: Returns the household ID, creation timestamp, and user list.
+      responses:
+        '200':
+          description: Household summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Household'
+
+  /v1/household/users:
+    get:
+      summary: List household users
+      operationId: listUsers
+      tags: [Household]
+      description: Returns all users registered in the household.
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      summary: Create a household user
+      operationId: createUser
+      tags: [Household]
+      description: Adds a new user to the household with a generated ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /v1/household/users/{userId}:
+    get:
+      summary: Get user by ID
+      operationId: getUser
+      tags: [Household]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Remove user from household
+      operationId: deleteUser
+      tags: [Household]
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User removed
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── REST: Memory ──────────────────────────────────────────────────────────
+
+  /v1/memory/episodes:
+    get:
+      summary: List episodic memory
+      operationId: listEpisodes
+      tags: [Memory]
+      description: Returns episodic memory records for a user. Stub in M0 — returns empty list.
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The user whose episodes to retrieve
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+          description: Maximum number of episodes to return
+      responses:
+        '200':
+          description: List of episodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  # ── REST: Skills ──────────────────────────────────────────────────────────
+
+  /v1/skills:
+    get:
+      summary: List installed skills
+      operationId: listSkills
+      tags: [Skills]
+      description: Returns all installed skills. Stub in M0 — returns empty list.
+      responses:
+        '200':
+          description: List of skills
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Skill'
+
+  /v1/skills/{skillId}:
+    get:
+      summary: Get skill by ID
+      operationId: getSkill
+      tags: [Skills]
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Skill detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── REST: Adapters ────────────────────────────────────────────────────────
+
+  /v1/adapters:
+    get:
+      summary: List configured adapters
+      operationId: listAdapters
+      tags: [Adapters]
+      description: Returns all configured adapter instances. Stub in M0 — returns empty list.
+      responses:
+        '200':
+          description: List of adapters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Adapter'
+
+  /v1/adapters/{category}/{name}:
+    get:
+      summary: Get adapter by category and name
+      operationId: getAdapter
+      tags: [Adapters]
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Adapter category (llm, tts, stt, etc.)
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Adapter name
+      responses:
+        '200':
+          description: Adapter detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Adapter'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── REST: Logs ────────────────────────────────────────────────────────────
+
+  /v1/logs:
+    post:
+      summary: Forward client log records
+      operationId: postLogs
+      tags: [Logs]
+      description: |
+        Accepts a batch of client-side log records and forwards them through the
+        server's Logback pipeline. Each record is logged at INFO level with its
+        `level` and `message` fields extracted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ClientLogRecord'
+      responses:
+        '204':
+          description: Logs accepted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  schemas:
+
+    # ── Group A — Base / Envelope ──────────────────────────────────────────
+
+    WebSocketMessage:
+      type: object
+      description: |
+        Base type for all JSON WebSocket envelopes in the Pairion protocol.
+
+        Jackson polymorphic deserialization uses `@JsonTypeInfo(use = Id.NAME,
+        property = "type")`. The `type` field value maps to a concrete subtype
+        via `@JsonSubTypes`. Binary frames (Opus audio) are handled separately
+        and are NOT part of this hierarchy.
+
+        Registered subtypes:
+        | `type` value | Java class | Direction |
+        |---|---|---|
+        | `DeviceIdentify` | `DeviceIdentify` | client→server |
+        | `SessionOpened` | `SessionOpened` | server→client |
+        | `SessionClosed` | `SessionClosed` | server→client |
+        | `HeartbeatPing` | `HeartbeatPing` | server→client |
+        | `HeartbeatPong` | `HeartbeatPong` | client→server |
+        | `Error` | `ErrorMessage` | server→client |
+        | `AgentStateChange` | `AgentStateChange` | server→client |
+        | `WakeWordDetected` | `WakeWordDetected` | client→server |
+        | `AudioStreamStart` | `AudioStreamStart` | bidirectional |
+        | `SpeechEnded` | `SpeechEnded` | client→server |
+        | `AudioStreamEnd` | `AudioStreamEnd` | bidirectional |
+        | `TextMessage` | `TextMessage` | client→server |
+        | `TranscriptPartial` | `TranscriptPartial` | server→client |
+        | `TranscriptFinal` | `TranscriptFinal` | server→client |
+        | `LlmTokenStream` | `LlmTokenStream` | server→client |
+        | `ToolCallStarted` | `ToolCallStarted` | server→client |
+        | `ToolCallCompleted` | `ToolCallCompleted` | server→client |
+        | `UnderBreathAck` | `UnderBreathAck` | server→client |
+        | `MapFocus` | `MapFocus` | server→client |
+        | `MapClear` | `MapClear` | server→client |
+        | `ConversationEnded` | `ConversationEnded` | server→client |
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          description: >
+            Protocol-level type discriminator. The value determines which concrete
+            message type this envelope represents.
+      discriminator:
+        propertyName: type
+        mapping:
+          DeviceIdentify: '#/components/schemas/DeviceIdentify'
+          SessionOpened: '#/components/schemas/SessionOpened'
+          SessionClosed: '#/components/schemas/SessionClosed'
+          HeartbeatPing: '#/components/schemas/HeartbeatPing'
+          HeartbeatPong: '#/components/schemas/HeartbeatPong'
+          Error: '#/components/schemas/ErrorMessage'
+          AgentStateChange: '#/components/schemas/AgentStateChange'
+          WakeWordDetected: '#/components/schemas/WakeWordDetected'
+          AudioStreamStart: '#/components/schemas/AudioStreamStart'
+          SpeechEnded: '#/components/schemas/SpeechEnded'
+          AudioStreamEnd: '#/components/schemas/AudioStreamEnd'
+          TextMessage: '#/components/schemas/TextMessage'
+          TranscriptPartial: '#/components/schemas/TranscriptPartial'
+          TranscriptFinal: '#/components/schemas/TranscriptFinal'
+          LlmTokenStream: '#/components/schemas/LlmTokenStream'
+          ToolCallStarted: '#/components/schemas/ToolCallStarted'
+          ToolCallCompleted: '#/components/schemas/ToolCallCompleted'
+          UnderBreathAck: '#/components/schemas/UnderBreathAck'
+          MapFocus: '#/components/schemas/MapFocus'
+          MapClear: '#/components/schemas/MapClear'
+          ConversationEnded: '#/components/schemas/ConversationEnded'
+
+    # ── Group B — Session Messages ─────────────────────────────────────────
+
+    DeviceIdentify:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Client → Server.** First message sent by the client immediately after
+            the WebSocket upgrade. Identifies the device and authenticates the session.
+            The server creates an `AgentSession` and responds with `SessionOpened`.
+          required:
+            - type
+            - deviceId
+            - bearerToken
+            - clientVersion
+          properties:
+            type:
+              type: string
+              enum: [DeviceIdentify]
+            deviceId:
+              type: string
+              description: Unique identifier for the connecting device.
+              example: "device-abc123"
+            bearerToken:
+              type: string
+              description: >
+                Authentication token for the device. This is the only authentication
+                mechanism — there is no HTTP-level authorization header on the WebSocket
+                upgrade request.
+              example: "eyJhbGciOiJIUzI1NiJ9..."
+            clientVersion:
+              type: string
+              description: Semantic version of the connecting client application.
+              example: "1.2.0"
+
+    SessionOpened:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Sent immediately after a valid `DeviceIdentify` is
+            received, confirming that a session has been established.
+          required:
+            - type
+            - sessionId
+            - serverVersion
+          properties:
+            type:
+              type: string
+              enum: [SessionOpened]
+            sessionId:
+              type: string
+              description: Unique identifier for the established session (server-generated UUID).
+              example: "550e8400-e29b-41d4-a716-446655440000"
+            serverVersion:
+              type: string
+              description: Semantic version of the server.
+              example: "0.3.0"
+
+    SessionClosed:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Sent before the server closes the WebSocket connection,
+            providing a human-readable reason for the closure.
+          required:
+            - type
+            - reason
+          properties:
+            type:
+              type: string
+              enum: [SessionClosed]
+            reason:
+              type: string
+              description: Human-readable reason for the session closure.
+              example: "idle_timeout"
+
+    HeartbeatPing:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Keepalive ping sent periodically by the server.
+            The client MUST respond with a `HeartbeatPong`.
+
+            Note: The source code names this `HeartbeatPing` (server-to-client) and
+            `HeartbeatPong` (client-to-server), which is the reverse of the conventional
+            ping/pong naming — the server initiates the keepalive.
+          required:
+            - type
+            - timestamp
+          properties:
+            type:
+              type: string
+              enum: [HeartbeatPing]
+            timestamp:
+              type: string
+              format: date-time
+              description: ISO-8601 timestamp of when the ping was sent.
+              example: "2025-04-21T12:00:00.000Z"
+
+    HeartbeatPong:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Client → Server.** Client response to a `HeartbeatPing`. Must be sent
+            within the keepalive window to prevent session timeout.
+          required:
+            - type
+            - timestamp
+          properties:
+            type:
+              type: string
+              enum: [HeartbeatPong]
+            timestamp:
+              type: string
+              format: date-time
+              description: ISO-8601 timestamp of when the pong was generated.
+              example: "2025-04-21T12:00:00.050Z"
+
+    ErrorMessage:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Sent when the server encounters a protocol or
+            processing error. The `type` discriminator value on the wire is `"Error"`
+            (not `"ErrorMessage"`).
+          required:
+            - type
+            - code
+            - message
+          properties:
+            type:
+              type: string
+              enum: [Error]
+            code:
+              type: string
+              description: Machine-readable error code.
+              example: "auth_failed"
+            message:
+              type: string
+              description: Human-readable error description.
+              example: "Bearer token is invalid or expired"
+
+    # ── Group C — Voice / Audio Messages ──────────────────────────────────
+
+    WakeWordDetected:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Client → Server.** Sent by the client when the local wake-word detector
+            fires. Signals the server that the user intends to speak.
+          required:
+            - type
+            - timestamp
+          properties:
+            type:
+              type: string
+              enum: [WakeWordDetected]
+            timestamp:
+              type: string
+              format: date-time
+              description: ISO-8601 timestamp of when the wake word was detected.
+              example: "2025-04-21T12:00:01.000Z"
+            confidence:
+              type: number
+              format: double
+              nullable: true
+              description: >
+                Detection confidence score in the range [0.0, 1.0]. May be null if the
+                wake-word detector does not provide a confidence value.
+              example: 0.95
+
+    AudioStreamStart:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Bidirectional.** Signals the start of an Opus audio stream.
+
+            - **Client → Server**: sent before the client begins transmitting microphone
+              binary frames. The server allocates an STT session and transitions the
+              agent to the `listening` state.
+            - **Server → Client**: sent before the server begins transmitting TTS binary
+              frames. The client should prepare its audio output pipeline.
+
+            After this message, binary frames with the matching `streamId` prefix carry
+            the actual Opus audio payload.
+          required:
+            - type
+            - streamId
+            - codec
+            - sampleRate
+          properties:
+            type:
+              type: string
+              enum: [AudioStreamStart]
+            streamId:
+              type: string
+              description: Unique identifier for this audio stream. Used as the 4-byte binary frame prefix.
+              example: "mic1"
+            codec:
+              type: string
+              description: Audio codec. Always "opus".
+              enum: [opus]
+              example: "opus"
+            sampleRate:
+              type: integer
+              description: Audio sample rate in Hz.
+              example: 16000
+
+    SpeechEnded:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Client → Server.** Signals that the user has stopped speaking. The server
+            finalizes the STT session and begins LLM processing.
+          required:
+            - type
+            - streamId
+          properties:
+            type:
+              type: string
+              enum: [SpeechEnded]
+            streamId:
+              type: string
+              description: Identifier of the audio stream that ended.
+              example: "mic1"
+
+    AudioStreamEnd:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Bidirectional.** Signals termination of an audio stream.
+
+            - **Client → Server**: sent when the microphone stream is closed.
+            - **Server → Client**: sent when the TTS output stream has finished.
+          required:
+            - type
+            - streamId
+            - reason
+          properties:
+            type:
+              type: string
+              enum: [AudioStreamEnd]
+            streamId:
+              type: string
+              description: Identifier of the audio stream that ended.
+              example: "tts-001"
+            reason:
+              $ref: '#/components/schemas/AudioStreamEndReason'
+
+    AgentStateChange:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Sent whenever the agent transitions between processing
+            states. The client should update UI indicators accordingly.
+
+            Turn-loop state sequence: `idle` → `listening` → `thinking` → `speaking` → `idle`
+          required:
+            - type
+            - state
+          properties:
+            type:
+              type: string
+              enum: [AgentStateChange]
+            state:
+              $ref: '#/components/schemas/AgentState'
+
+    TranscriptPartial:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Interim speech-to-text result while the user is still
+            speaking. Multiple partial transcripts may be received before the final.
+            The client may display these for live captioning.
+          required:
+            - type
+            - text
+          properties:
+            type:
+              type: string
+              enum: [TranscriptPartial]
+            text:
+              type: string
+              description: The partial (interim) transcript text.
+              example: "What is the weath"
+
+    TranscriptFinal:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Final speech-to-text result after `SpeechEnded` has
+            been processed. Sent once per turn before LLM processing begins.
+          required:
+            - type
+            - text
+          properties:
+            type:
+              type: string
+              enum: [TranscriptFinal]
+            text:
+              type: string
+              description: The final transcript text.
+              example: "What is the weather in Tokyo?"
+
+    LlmTokenStream:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Streamed incremental LLM output. One message per token
+            delta. The full response is the concatenation of all `delta` values received
+            between `AgentStateChange(thinking)` and the next state transition.
+          required:
+            - type
+            - delta
+          properties:
+            type:
+              type: string
+              enum: [LlmTokenStream]
+            delta:
+              type: string
+              description: The incremental token text from the LLM.
+              example: "The weather in Tokyo"
+
+    UnderBreathAck:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** A brief conversational acknowledgement emitted during
+            barge-in handling. Signals that the agent recognized the interruption and is
+            processing the new input. The client may play or display this as a brief
+            interjection.
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              enum: [UnderBreathAck]
+            acknowledgementType:
+              type: string
+              nullable: true
+              description: >
+                Style of acknowledgement. One of: "mm", "mhm", "sure", "alright", "okay".
+                May be null if no specific style was selected.
+              example: "mm"
+
+    # ── Group D — Tool Messages ────────────────────────────────────────────
+
+    ToolCallStarted:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Emitted when the LLM has requested a tool call and
+            the server has begun executing it. The client may display a "tool in use"
+            indicator.
+          required:
+            - type
+            - toolCallId
+            - toolName
+            - input
+          properties:
+            type:
+              type: string
+              enum: [ToolCallStarted]
+            toolCallId:
+              type: string
+              description: Unique identifier for this tool call invocation.
+              example: "tc-7f3a1b2c"
+            toolName:
+              type: string
+              description: Name of the tool being invoked as registered in the tool definition list.
+              example: "get_current_weather"
+            input:
+              type: object
+              additionalProperties: true
+              description: Input parameters passed to the tool, as provided by the LLM.
+              example:
+                city: "Tokyo"
+
+    ToolCallCompleted:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Emitted when a tool call has finished executing.
+            The `output` map contains the tool's result (or an error map if execution
+            failed). Always follows a `ToolCallStarted` with the same `toolCallId`.
+          required:
+            - type
+            - toolCallId
+            - output
+          properties:
+            type:
+              type: string
+              enum: [ToolCallCompleted]
+            toolCallId:
+              type: string
+              description: Unique identifier matching the corresponding `ToolCallStarted`.
+              example: "tc-7f3a1b2c"
+            output:
+              type: object
+              additionalProperties: true
+              description: >
+                The tool's output as a string-keyed map. On success, contains
+                tool-specific result fields. On failure, contains `error` and `message`
+                keys.
+              example:
+                city: "Tokyo, Japan"
+                temperature_f: 68.4
+                conditions: "Partly cloudy"
+                wind_speed_mph: 12.3
+
+    # ── Group E — Map / UI Messages ────────────────────────────────────────
+
+    MapFocus:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Commands the client to pan and zoom the world globe to
+            a specific geographic location. Emitted when the LLM invokes the `focus_map`
+            tool during a turn.
+
+            The client should immediately animate the globe to centre on `lat`/`lon` at
+            the specified `zoom` level.
+          required:
+            - type
+            - lat
+            - lon
+            - label
+            - zoom
+          properties:
+            type:
+              type: string
+              enum: [MapFocus]
+            lat:
+              type: number
+              format: double
+              description: Latitude of the target location in decimal degrees.
+              example: 35.6762
+            lon:
+              type: number
+              format: double
+              description: Longitude of the target location in decimal degrees.
+              example: 139.6503
+            label:
+              type: string
+              description: Human-readable display label for the location.
+              example: "Tokyo, Japan"
+            zoom:
+              $ref: '#/components/schemas/ZoomLevel'
+
+    MapClear:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Commands the client to clear the current map focus and
+            resume globe auto-scroll. Emitted after a 2-minute idle timeout since the
+            last `MapFocus`, or when the user utters a map-dismissal phrase such as
+            "Go back" or "that's all".
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              enum: [MapClear]
+
+    # ── Group F — Conversation Messages ───────────────────────────────────
+
+    ConversationEnded:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Server → Client.** Signals that the current conversation session has ended.
+            Emitted when the user utters a dismissal phrase such as "that's all" or
+            "goodbye". The client should exit conversation mode and return to wake-word
+            listening state.
+          required:
+            - type
+          properties:
+            type:
+              type: string
+              enum: [ConversationEnded]
+
+    TextMessage:
+      allOf:
+        - $ref: '#/components/schemas/WebSocketMessage'
+        - type: object
+          description: |
+            **Client → Server.** Allows text-only (non-voice) input to the agent.
+            Use this when microphone access is unavailable or the user prefers typed input.
+          required:
+            - type
+            - text
+          properties:
+            type:
+              type: string
+              enum: [TextMessage]
+            text:
+              type: string
+              description: The text content from the user.
+              example: "What is the weather in London?"
+
+    # ── Group G — Binary Frame Format ─────────────────────────────────────
+
+    BinaryAudioFrame:
+      type: object
+      description: |
+        **Not a JSON schema.** Documents the binary frame format used for Opus audio
+        transmission over the WebSocket.
+
+        Every binary WebSocket frame contains two parts:
+        1. **Stream-ID prefix** (bytes 0–3): the `streamId` value from the preceding
+           `AudioStreamStart` message, encoded as UTF-8 and padded with space characters
+           on the right to exactly 4 bytes.
+        2. **Opus payload** (bytes 4–N): a single raw Opus packet.
+
+        The 4-byte prefix allows the receiver to route the audio chunk to the correct
+        stream decoder without parsing a JSON envelope for every audio packet, keeping
+        per-frame overhead minimal.
+
+        Example: if `streamId` is `"mic1"`, bytes 0–3 are `0x6D 0x69 0x63 0x31` (ASCII
+        "mic1"). If `streamId` is `"ts"`, bytes 0–3 are `0x74 0x73 0x20 0x20`
+        (ASCII "ts  " with two space pads).
+      properties:
+        streamIdPrefix:
+          type: string
+          description: 4-byte UTF-8 stream ID, space-padded on the right. Not present in the actual binary — documented for clarity.
+          example: "mic1"
+        opusPayload:
+          type: string
+          format: binary
+          description: Raw Opus audio packet bytes following the 4-byte prefix.
+
+    # ── Group H — Enums / Constants ───────────────────────────────────────
+
+    AgentState:
+      type: string
+      description: |
+        Agent processing state, as emitted in `AgentStateChange.state`.
+
+        State transition sequence for a normal turn:
+        `idle` → `listening` → `thinking` → `speaking` → `idle`
+      enum:
+        - idle
+        - listening
+        - thinking
+        - speaking
+      example: listening
+
+    AudioStreamEndReason:
+      type: string
+      description: Reason for audio stream termination, as carried in `AudioStreamEnd.reason`.
+      enum:
+        - normal
+        - interrupted
+        - error
+      example: normal
+
+    ZoomLevel:
+      type: string
+      description: |
+        Globe zoom level for `MapFocus`. Controls how tightly the globe view is
+        centred on the target location:
+        - `continent` — 1.2× zoom, broad continental region
+        - `country` — 1.8× zoom, fills the screen with the country
+        - `region` — 2.8× zoom, state, prefecture, or province
+        - `city` — 4.0× zoom, centred on a city or specific location
+      enum:
+        - continent
+        - country
+        - region
+        - city
+      example: city
+
+    # ── REST Response Schemas ──────────────────────────────────────────────
+
+    HealthResponse:
+      type: object
+      description: Health check response.
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: Server health status.
+          example: "healthy"
+
+    VersionResponse:
+      type: object
+      description: Server version information.
+      required:
+        - version
+        - buildTime
+        - gitCommit
+      properties:
+        version:
+          type: string
+          description: Semantic version of the server.
+          example: "0.1.0"
+        buildTime:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp of the build.
+          example: "2025-04-21T12:00:00.000Z"
+        gitCommit:
+          type: string
+          description: Git commit hash or "development".
+          example: "development"
+
+    Household:
+      type: object
+      description: Household summary.
+      required:
+        - id
+        - createdAt
+        - users
+      properties:
+        id:
+          type: string
+          description: Household UUID.
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 creation timestamp.
+          example: "2025-01-01T00:00:00.000Z"
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      description: A user registered in the household.
+      required:
+        - id
+        - role
+        - displayName
+        - createdAt
+        - enrollmentComplete
+      properties:
+        id:
+          type: string
+          description: User UUID.
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        role:
+          type: string
+          description: User role within the household.
+          enum: [OWNER, MEMBER]
+          example: "MEMBER"
+        displayName:
+          type: string
+          description: Human-readable display name.
+          example: "Alice"
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 creation timestamp.
+          example: "2025-01-01T00:00:00.000Z"
+        enrollmentComplete:
+          type: boolean
+          description: Whether voice enrollment has been completed for this user.
+          example: false
+
+    CreateUserRequest:
+      type: object
+      description: Request body for creating a new household user.
+      properties:
+        role:
+          type: string
+          description: Role to assign to the new user.
+          enum: [OWNER, MEMBER]
+          default: MEMBER
+          example: "MEMBER"
+        displayName:
+          type: string
+          description: Display name for the new user.
+          example: "Bob"
+
+    Skill:
+      type: object
+      description: An installed agent skill.
+      required:
+        - id
+        - name
+        - description
+        - permittedUsers
+      properties:
+        id:
+          type: string
+          description: Skill identifier.
+          example: "weather"
+        name:
+          type: string
+          description: Human-readable skill name.
+          example: "Weather"
+        description:
+          type: string
+          description: What the skill does.
+          example: "Fetches current weather conditions for any city."
+        permittedUsers:
+          type: array
+          items:
+            type: string
+          description: List of user IDs permitted to use this skill. Empty means unrestricted.
+
+    Adapter:
+      type: object
+      description: A configured adapter instance.
+      required:
+        - category
+        - name
+        - enabled
+        - capabilities
+      properties:
+        category:
+          type: string
+          description: Adapter category (llm, tts, stt, etc.).
+          example: "llm"
+        name:
+          type: string
+          description: Adapter implementation name.
+          example: "anthropic"
+        enabled:
+          type: boolean
+          description: Whether this adapter is currently active.
+          example: true
+        capabilities:
+          type: object
+          additionalProperties: true
+          description: Adapter-specific capability flags and metadata.
+
+    ClientLogRecord:
+      type: object
+      description: A single client-side log record forwarded to the server.
+      properties:
+        level:
+          type: string
+          description: Log level (DEBUG, INFO, WARN, ERROR).
+          example: "INFO"
+        message:
+          type: string
+          description: Log message text.
+          example: "AudioStreamStart received"
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp from the client.
+          example: "2025-04-21T12:00:01.500Z"
+
+    ErrorBody:
+      type: object
+      description: Standard error response body for HTTP REST endpoints.
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code.
+          example: "not_found"
+        message:
+          type: string
+          description: Human-readable error description.
+          example: "The requested resource was not found"
+
+    # ── Tool Input/Output Schemas ──────────────────────────────────────────
+
+    FocusMapInput:
+      type: object
+      description: |
+        Input parameters for the `focus_map` tool (invoked by the LLM).
+        Geocodes a location name and emits a `MapFocus` WebSocket message.
+      required:
+        - location
+      properties:
+        location:
+          type: string
+          description: Place name to geocode. Accepts city, country, region, or landmark names.
+          example: "Tokyo"
+        zoom:
+          $ref: '#/components/schemas/ZoomLevel'
+
+    FocusMapOutput:
+      type: object
+      description: |
+        Output map returned by the `focus_map` tool on success. The `AgentSession`
+        uses these values to emit a `MapFocus` WebSocket message.
+      properties:
+        lat:
+          type: number
+          format: double
+          description: Geocoded latitude in decimal degrees.
+          example: 35.6762
+        lon:
+          type: number
+          format: double
+          description: Geocoded longitude in decimal degrees.
+          example: 139.6503
+        label:
+          type: string
+          description: Resolved display label, e.g. "Tokyo, Japan".
+          example: "Tokyo, Japan"
+        zoom:
+          $ref: '#/components/schemas/ZoomLevel'
+        status:
+          type: string
+          description: Always "focused" on success.
+          example: "focused"
+
+    GetCurrentWeatherInput:
+      type: object
+      description: |
+        Input parameters for the `get_current_weather` tool (invoked by the LLM).
+        Geocodes a city name then fetches current conditions from Open-Meteo.
+      required:
+        - city
+      properties:
+        city:
+          type: string
+          description: City name to fetch weather for.
+          example: "London"
+
+    GetCurrentWeatherOutput:
+      type: object
+      description: |
+        Output map returned by the `get_current_weather` tool on success.
+        Uses the Open-Meteo free API (no API key required).
+      properties:
+        city:
+          type: string
+          description: Resolved city name with country, e.g. "London, United Kingdom".
+          example: "London, United Kingdom"
+        temperature_f:
+          type: number
+          format: double
+          description: Current temperature in degrees Fahrenheit.
+          example: 59.2
+        conditions:
+          type: string
+          description: Human-readable WMO weather code description.
+          example: "Partly cloudy"
+        wind_speed_mph:
+          type: number
+          format: double
+          description: Current wind speed in miles per hour.
+          example: 14.5
+        latitude:
+          type: number
+          format: double
+          description: Geocoded latitude.
+          example: 51.5074
+        longitude:
+          type: number
+          format: double
+          description: Geocoded longitude.
+          example: -0.1278
+
+  # ── Responses ─────────────────────────────────────────────────────────────
+
+  responses:
+    BadRequest:
+      description: Bad Request — the request body or parameters are invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+
+    NotFound:
+      description: Not Found — the requested resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+
+    InternalServerError:
+      description: Internal Server Error — an unexpected server-side error occurred
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+
+  # ── Security Schemes ──────────────────────────────────────────────────────
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT bearer token. **Not** used as an HTTP `Authorization` header on the
+        WebSocket upgrade request. Instead, the token is passed in the `bearerToken`
+        field of the first `DeviceIdentify` WebSocket message sent after the upgrade.
+
+        There is no HTTP-level authentication on the `/ws/v1` endpoint itself.
+
