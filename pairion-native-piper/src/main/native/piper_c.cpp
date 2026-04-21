@@ -93,6 +93,12 @@ int piper_synthesize(
     }
 }
 
+void piper_set_length_scale(piper_voice_handle_t voice_handle, float length_scale) {
+    if (!voice_handle) return;
+    auto* voice = static_cast<piper::Voice*>(voice_handle);
+    voice->synthesisConfig.lengthScale = length_scale;
+}
+
 void piper_free_voice(piper_voice_handle_t voice_handle) {
     if (!voice_handle) return;
     delete static_cast<piper::Voice*>(voice_handle);

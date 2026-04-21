@@ -77,6 +77,7 @@ public class DefaultPiperTtsNative implements PiperTtsNative {
     private static volatile Path bundledEspeakDataPath = null;
 
     private final String voiceName;
+    private final float lengthScale;
     private final LibraryLoader libraryLoader;
     private boolean available;
     private int sampleRate;
@@ -91,11 +92,13 @@ public class DefaultPiperTtsNative implements PiperTtsNative {
      * from {@code PAIRION_HOME} (or {@code ~/.pairion} if unset).
      *
      * @param voiceName the voice model name (e.g. {@code en_GB-alan-medium})
+     * @param lengthScale speech rate multiplier (1.0 = normal, lower = faster)
      */
     @Autowired
     public DefaultPiperTtsNative(
-            @Value("${pairion.adapters.tts.piper.voice:en_GB-alan-medium}") String voiceName) {
-        this(voiceName, DefaultPiperTtsNative::loadLibraryFromClasspath);
+            @Value("${pairion.adapters.tts.piper.voice:en_GB-alan-medium}") String voiceName,
+            @Value("${pairion.adapters.tts.piper.length-scale:1.0}") float lengthScale) {
+        this(voiceName, lengthScale, DefaultPiperTtsNative::loadLibraryFromClasspath);
     }
 
     /**
@@ -105,7 +108,20 @@ public class DefaultPiperTtsNative implements PiperTtsNative {
      * @param libraryLoader the library loader implementation
      */
     DefaultPiperTtsNative(String voiceName, LibraryLoader libraryLoader) {
+        this(voiceName, 1.0f, libraryLoader);
+    }
+
+    /**
+     * Package-private constructor for testing — allows injecting a custom {@link LibraryLoader}
+     * and a speech rate.
+     *
+     * @param voiceName the voice model name
+     * @param lengthScale speech rate multiplier (1.0 = normal, lower = faster)
+     * @param libraryLoader the library loader implementation
+     */
+    DefaultPiperTtsNative(String voiceName, float lengthScale, LibraryLoader libraryLoader) {
         this.voiceName = voiceName;
+        this.lengthScale = lengthScale;
         this.libraryLoader = libraryLoader;
         this.arena = Arena.ofShared();
         this.sampleRate = VOICE_SAMPLE_RATE;
@@ -194,7 +210,8 @@ public class DefaultPiperTtsNative implements PiperTtsNative {
             if (MemorySegment.NULL.equals(voiceHandle)) {
                 throw new IllegalStateException("piper_load_voice returned NULL");
             }
-            log.info("Piper voice loaded: {}", voiceName);
+            PiperBindings.piper_set_length_scale(voiceHandle, lengthScale);
+            log.info("Piper voice loaded: {}, lengthScale={}", voiceName, lengthScale);
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {

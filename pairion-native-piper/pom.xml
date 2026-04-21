@@ -219,6 +219,7 @@ rm -rf "$OUT"
     --include-function piper_initialize \
     --include-function piper_load_voice \
     --include-function piper_synthesize \
+    --include-function piper_set_length_scale \
     --include-function piper_free_voice \
     --include-function piper_terminate \
     "$HEADER"

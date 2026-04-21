@@ -56,7 +56,7 @@ class DefaultPiperTtsNativeIT {
      */
     @Test
     void synthesizesSpeechWithAudibleOutput() {
-        DefaultPiperTtsNative nativeImpl = new DefaultPiperTtsNative(VOICE);
+        DefaultPiperTtsNative nativeImpl = new DefaultPiperTtsNative(VOICE, 1.0f);
         assumeTrue(nativeImpl.isAvailable(), "Piper TTS not available — skipping");
 
         List<byte[]> chunks = new ArrayList<>();

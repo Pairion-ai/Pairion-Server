@@ -158,7 +158,7 @@ class NativeIntegrationTests {
      */
     @Test
     void synthesizesSpeechToAudio() {
-        DefaultPiperTtsNative nativeImpl = new DefaultPiperTtsNative("en_GB-alan-medium");
+        DefaultPiperTtsNative nativeImpl = new DefaultPiperTtsNative("en_GB-alan-medium", 1.0f);
         assumeTrue(nativeImpl.isAvailable(), "Piper TTS not installed — skipping");
 
         List<byte[]> chunks = new ArrayList<>();

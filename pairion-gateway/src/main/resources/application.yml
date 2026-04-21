@@ -33,6 +33,7 @@ pairion:
     tts:
       piper:
         voice: en_GB-alan-medium
+        length-scale: 0.85
 
 logging:
   level:

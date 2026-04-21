@@ -75,6 +75,17 @@ int piper_synthesize(
     void* user_data);
 
 /**
+ * Sets the speech rate (length scale) for a loaded voice.
+ *
+ * A lower value speeds up speech; a higher value slows it down.
+ * 1.0 is the default (normal speed). 0.85 produces approximately 15% faster speech.
+ *
+ * @param voice_handle  handle returned by piper_load_voice()
+ * @param length_scale  speech rate multiplier (default 1.0; lower = faster)
+ */
+void piper_set_length_scale(piper_voice_handle_t voice_handle, float length_scale);
+
+/**
  * Frees a loaded voice model and releases its resources.
  *
  * @param voice_handle handle returned by piper_load_voice()
