@@ -45,7 +45,7 @@ class AgentSessionTest {
         when(ttsAdapter.capabilities()).thenReturn(TtsCapabilities.unavailable());
         soulProvider = mock(SoulPromptProvider.class);
         toolDispatcher = mock(ToolDispatcher.class);
-        when(soulProvider.getSystemPrompt("test-session")).thenReturn("You are Pairion.");
+        when(soulProvider.getSystemPrompt("test-session")).thenReturn("You are Alfred.");
         events = new ArrayList<>();
         session =
                 new AgentSession(
@@ -621,6 +621,64 @@ class AgentSessionTest {
         assertThat(focus.zoom()).isEqualTo("city");
 
         // Scheduler was closed to avoid thread leaks after test
+        session.close();
+    }
+
+    /**
+     * When get_current_weather returns latitude/longitude, a MapFocusEvent is automatically
+     * emitted (covers the emitMapFocusFromWeather branch).
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void weatherToolWithLatLonEmitsMapFocusEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-w", "get_current_weather", Map.of("city", "Dallas")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("It is 62 degrees in Dallas."));
+                        consumer.accept(new LlmEvent.Stop(6));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch("get_current_weather", Map.of("city", "Dallas")))
+                .thenReturn(Map.of(
+                        "latitude", 32.7831,
+                        "longitude", -96.8067,
+                        "city", "Dallas, United States",
+                        "temperature_f", 62.3,
+                        "conditions", "Drizzle",
+                        "wind_speed_mph", 10.1));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("What's the weather in Dallas?", 1000));
+
+        boolean hasMapFocus = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.MapFocusEvent);
+        assertThat(hasMapFocus).isTrue();
+
+        AgentSessionEvent.MapFocusEvent focus = (AgentSessionEvent.MapFocusEvent) events.stream()
+                .filter(e -> e instanceof AgentSessionEvent.MapFocusEvent)
+                .findFirst().orElseThrow();
+        assertThat(focus.lat()).isEqualTo(32.7831);
+        assertThat(focus.lon()).isEqualTo(-96.8067);
+        assertThat(focus.label()).isEqualTo("Dallas, United States");
+        assertThat(focus.zoom()).isEqualTo("city");
+
         session.close();
     }
 }

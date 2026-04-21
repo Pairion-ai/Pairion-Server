@@ -219,6 +219,24 @@ public class AgentSession {
     }
 
     /**
+     * Emits a {@link AgentSessionEvent.MapFocusEvent} derived from a {@code get_current_weather}
+     * tool result. Uses the {@code latitude}/{@code longitude} coordinates and {@code city} label
+     * returned by the weather tool so the map always focuses when weather is fetched, even when
+     * the LLM does not call {@code focus_map} explicitly.
+     *
+     * @param result the weather tool result containing {@code latitude}, {@code longitude},
+     *               and {@code city}
+     */
+    private void emitMapFocusFromWeather(Map<String, Object> result) {
+        double lat = ((Number) result.get("latitude")).doubleValue();
+        double lon = ((Number) result.get("longitude")).doubleValue();
+        String label = (String) result.getOrDefault("city", "");
+        eventSink.accept(new AgentSessionEvent.MapFocusEvent(lat, lon, label, "city"));
+        rescheduleClear();
+        log.info("map.focus.weather: label={}, lat={}, lon={}", label, lat, lon);
+    }
+
+    /**
      * Returns {@code true} when the transcript contains an ending phrase that should clear the map.
      *
      * @param transcript the STT transcript, compared case-insensitively
@@ -339,6 +357,10 @@ public class AgentSession {
                 if (MapFocusTool.TOOL_NAME.equals(tc.toolName())
                         && !result.containsKey("error")) {
                     emitMapFocus(result);
+                } else if ("get_current_weather".equals(tc.toolName())
+                        && result.containsKey("latitude")
+                        && result.containsKey("longitude")) {
+                    emitMapFocusFromWeather(result);
                 }
                 eventSink.accept(
                         new AgentSessionEvent.ToolCallCompletedEvent(
