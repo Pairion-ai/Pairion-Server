@@ -15,8 +15,8 @@ import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.adapters.data.adsb.AdsbDataAdapter;
 import com.pairion.adapters.data.adsb.AdsbAircraft;
 import com.pairion.agent.tools.ToolDispatcher;
+import com.pairion.agent.tools.layer.SetBackgroundTool;
 import com.pairion.agent.tools.map.MapFocusTool;
-import com.pairion.agent.tools.scene.SetSceneTool;
 import com.pairion.agent.tools.scene.ShowAdsbRadarTool;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
@@ -743,10 +743,10 @@ class AgentSessionTest {
         session.close();
     }
 
-    /** set_scene tool success emits a SceneChangeEvent with the correct scene ID and transition. */
+    /** set_background tool success emits a BackgroundChangeEvent with the correct background ID and transition. */
     @Test
     @SuppressWarnings("unchecked")
-    void setSceneToolSuccessEmitsSceneChangeEvent() {
+    void setBackgroundToolSuccessEmitsBackgroundChangeEvent() {
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
         when(sttAdapter.createSession(any()))
@@ -761,11 +761,11 @@ class AgentSessionTest {
                     if (firstCall[0]) {
                         firstCall[0] = false;
                         consumer.accept(new LlmEvent.ToolCallRequest(
-                                "tc-scene", SetSceneTool.TOOL_NAME,
-                                Map.of("scene_id", "globe", "transition", "crossfade")));
+                                "tc-bg", SetBackgroundTool.TOOL_NAME,
+                                Map.of("background_id", "globe", "transition", "crossfade")));
                         consumer.accept(new LlmEvent.Stop(0));
                     } else {
-                        consumer.accept(new LlmEvent.TokenDelta("Switching to the globe scene."));
+                        consumer.accept(new LlmEvent.TokenDelta("Switching to the globe."));
                         consumer.accept(new LlmEvent.Stop(5));
                     }
                     return null;
@@ -773,29 +773,30 @@ class AgentSessionTest {
                 .when(llmAdapter).generate(any(), any());
 
         when(toolDispatcher.dispatch(
-                SetSceneTool.TOOL_NAME,
-                Map.of("scene_id", "globe", "transition", "crossfade")))
-                .thenReturn(Map.of("status", "scene_changed",
-                        "scene_id", "globe", "transition", "crossfade"));
+                SetBackgroundTool.TOOL_NAME,
+                Map.of("background_id", "globe", "transition", "crossfade")))
+                .thenReturn(Map.of("status", "background_set",
+                        "background_id", "globe", "transition", "crossfade"));
 
         session.onAudioStreamStart("stream-1");
         sttConsumer[0].accept(new SttEvent.Final("Show me the globe.", 800));
 
-        boolean hasSceneChange = events.stream()
-                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent);
-        assertThat(hasSceneChange).isTrue();
+        boolean hasBackgroundChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent);
+        assertThat(hasBackgroundChange).isTrue();
 
-        AgentSessionEvent.SceneChangeEvent sc = (AgentSessionEvent.SceneChangeEvent) events.stream()
-                .filter(e -> e instanceof AgentSessionEvent.SceneChangeEvent)
-                .findFirst().orElseThrow();
-        assertThat(sc.sceneId()).isEqualTo("globe");
-        assertThat(sc.transition()).isEqualTo("crossfade");
+        AgentSessionEvent.BackgroundChangeEvent bc =
+                (AgentSessionEvent.BackgroundChangeEvent) events.stream()
+                        .filter(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent)
+                        .findFirst().orElseThrow();
+        assertThat(bc.backgroundId()).isEqualTo("globe");
+        assertThat(bc.transition()).isEqualTo("crossfade");
     }
 
-    /** set_scene tool error does NOT emit a SceneChangeEvent (covers the false branch of !result.containsKey("error")). */
+    /** set_background tool error does NOT emit a BackgroundChangeEvent (covers the false branch of !result.containsKey("error")). */
     @Test
     @SuppressWarnings("unchecked")
-    void setSceneToolErrorDoesNotEmitSceneChangeEvent() {
+    void setBackgroundToolErrorDoesNotEmitBackgroundChangeEvent() {
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
         when(sttAdapter.createSession(any()))
@@ -810,11 +811,11 @@ class AgentSessionTest {
                     if (firstCall[0]) {
                         firstCall[0] = false;
                         consumer.accept(new LlmEvent.ToolCallRequest(
-                                "tc-scene-err", SetSceneTool.TOOL_NAME,
-                                Map.of("scene_id", "unknown-scene")));
+                                "tc-bg-err", SetBackgroundTool.TOOL_NAME,
+                                Map.of("background_id", "unknown-bg")));
                         consumer.accept(new LlmEvent.Stop(0));
                     } else {
-                        consumer.accept(new LlmEvent.TokenDelta("Scene not found."));
+                        consumer.accept(new LlmEvent.TokenDelta("Background not found."));
                         consumer.accept(new LlmEvent.Stop(3));
                     }
                     return null;
@@ -822,23 +823,295 @@ class AgentSessionTest {
                 .when(llmAdapter).generate(any(), any());
 
         when(toolDispatcher.dispatch(
-                SetSceneTool.TOOL_NAME,
-                Map.of("scene_id", "unknown-scene")))
-                .thenReturn(Map.of("error", "unknown_scene",
-                        "message", "Scene not registered"));
+                SetBackgroundTool.TOOL_NAME,
+                Map.of("background_id", "unknown-bg")))
+                .thenReturn(Map.of("error", "unknown_background",
+                        "message", "Background not registered"));
 
         session.onAudioStreamStart("stream-1");
-        sttConsumer[0].accept(new SttEvent.Final("Load the unknown scene.", 600));
+        sttConsumer[0].accept(new SttEvent.Final("Load the unknown background.", 600));
 
-        boolean hasSceneChange = events.stream()
-                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent);
-        assertThat(hasSceneChange).isFalse();
+        boolean hasBackgroundChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent);
+        assertThat(hasBackgroundChange).isFalse();
     }
 
-    /** show_adsb_radar tool success emits SceneChangeEvent("adsb-radar") and starts adapter. */
+    /** add_overlay tool success emits an OverlayAddEvent with the correct overlay ID. */
     @Test
     @SuppressWarnings("unchecked")
-    void showAdsbRadarToolSuccessEmitsSceneChangeAndStartsAdapter() {
+    void addOverlayToolSuccessEmitsOverlayAddEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-overlay-add",
+                                com.pairion.agent.tools.layer.AddOverlayTool.TOOL_NAME,
+                                Map.of("overlay_id", "adsb")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Overlay added."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                com.pairion.agent.tools.layer.AddOverlayTool.TOOL_NAME,
+                Map.of("overlay_id", "adsb")))
+                .thenReturn(Map.of("status", "overlay_added", "overlay_id", "adsb"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Add the ADS-B overlay.", 400));
+
+        boolean hasOverlayAdd = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayAddEvent oa
+                        && "adsb".equals(oa.overlayId()));
+        assertThat(hasOverlayAdd).isTrue();
+    }
+
+    /** add_overlay tool error does NOT emit an OverlayAddEvent. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void addOverlayToolErrorDoesNotEmitOverlayAddEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-overlay-add-err",
+                                com.pairion.agent.tools.layer.AddOverlayTool.TOOL_NAME,
+                                Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Could not add overlay."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                com.pairion.agent.tools.layer.AddOverlayTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("error", "missing_parameter", "message", "overlay_id required"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Add overlay.", 300));
+
+        boolean hasOverlayAdd = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayAddEvent);
+        assertThat(hasOverlayAdd).isFalse();
+    }
+
+    /** remove_overlay tool success emits an OverlayRemoveEvent with the correct overlay ID. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void removeOverlayToolSuccessEmitsOverlayRemoveEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-overlay-remove",
+                                com.pairion.agent.tools.layer.RemoveOverlayTool.TOOL_NAME,
+                                Map.of("overlay_id", "adsb")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Overlay removed."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                com.pairion.agent.tools.layer.RemoveOverlayTool.TOOL_NAME,
+                Map.of("overlay_id", "adsb")))
+                .thenReturn(Map.of("status", "overlay_removed", "overlay_id", "adsb"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Remove the ADS-B overlay.", 400));
+
+        boolean hasOverlayRemove = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayRemoveEvent or
+                        && "adsb".equals(or.overlayId()));
+        assertThat(hasOverlayRemove).isTrue();
+    }
+
+    /** remove_overlay tool error does NOT emit an OverlayRemoveEvent. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void removeOverlayToolErrorDoesNotEmitOverlayRemoveEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-overlay-remove-err",
+                                com.pairion.agent.tools.layer.RemoveOverlayTool.TOOL_NAME,
+                                Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Could not remove overlay."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                com.pairion.agent.tools.layer.RemoveOverlayTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("error", "missing_parameter", "message", "overlay_id required"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Remove overlay.", 300));
+
+        boolean hasOverlayRemove = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayRemoveEvent);
+        assertThat(hasOverlayRemove).isFalse();
+    }
+
+    /** clear_overlays tool success emits an OverlayClearEvent. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void clearOverlaysToolSuccessEmitsOverlayClearEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-clear",
+                                com.pairion.agent.tools.layer.ClearOverlaysTool.TOOL_NAME,
+                                Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Overlays cleared."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                com.pairion.agent.tools.layer.ClearOverlaysTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("status", "overlays_cleared"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Clear all overlays.", 300));
+
+        boolean hasOverlayClear = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayClearEvent);
+        assertThat(hasOverlayClear).isTrue();
+    }
+
+    /** clear_overlays tool error does NOT emit an OverlayClearEvent. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void clearOverlaysToolErrorDoesNotEmitOverlayClearEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-clear-err",
+                                com.pairion.agent.tools.layer.ClearOverlaysTool.TOOL_NAME,
+                                Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Could not clear."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                com.pairion.agent.tools.layer.ClearOverlaysTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("error", "internal", "message", "unexpected error"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Clear overlays.", 300));
+
+        boolean hasOverlayClear = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayClearEvent);
+        assertThat(hasOverlayClear).isFalse();
+    }
+
+    /** activateAdsbRadar() emits BackgroundChangeEvent and OverlayAddEvent (covers the public entry point). */
+    @Test
+    void activateAdsbRadarEmitsLayerEvents() {
+        session.activateAdsbRadar();
+
+        boolean hasBackground = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent bc
+                        && "vfr".equals(bc.backgroundId()));
+        assertThat(hasBackground).isTrue();
+
+        boolean hasOverlay = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayAddEvent oa
+                        && "adsb".equals(oa.overlayId()));
+        assertThat(hasOverlay).isTrue();
+    }
+
+    /** show_adsb_radar tool success emits BackgroundChangeEvent("vfr") + OverlayAddEvent("adsb") and starts adapter. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void showAdsbRadarToolSuccessEmitsBackgroundAndOverlayAndStartsAdapter() {
         AdsbDataAdapter adsbAdapter = mock(AdsbDataAdapter.class);
         AgentSession sessionWithAdsb =
                 new AgentSession(
@@ -877,25 +1150,31 @@ class AgentSessionTest {
                 .when(llmAdapter).generate(any(), any());
 
         when(toolDispatcher.dispatch(ShowAdsbRadarTool.TOOL_NAME, Map.of()))
-                .thenReturn(Map.of("status", "adsb_radar_activated", "scene_id", "adsb-radar"));
+                .thenReturn(Map.of("status", "adsb_radar_activated",
+                        "background_id", "vfr", "overlay_id", "adsb"));
 
         sessionWithAdsb.onAudioStreamStart("stream-1");
         sttConsumer[0].accept(new SttEvent.Final("Show me the radar.", 500));
 
-        boolean hasSceneChange = events.stream()
-                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent sc
-                        && "adsb-radar".equals(sc.sceneId()));
-        assertThat(hasSceneChange).isTrue();
+        boolean hasBackgroundChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent bc
+                        && "vfr".equals(bc.backgroundId()));
+        assertThat(hasBackgroundChange).isTrue();
+
+        boolean hasOverlayAdd = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayAddEvent oa
+                        && "adsb".equals(oa.overlayId()));
+        assertThat(hasOverlayAdd).isTrue();
 
         org.mockito.Mockito.verify(adsbAdapter).startPolling(any());
         sessionWithAdsb.close();
         org.mockito.Mockito.verify(adsbAdapter).stopPolling();
     }
 
-    /** show_adsb_radar tool error does NOT emit SceneChangeEvent and does NOT start adapter. */
+    /** show_adsb_radar tool error does NOT emit BackgroundChangeEvent and does NOT start adapter. */
     @Test
     @SuppressWarnings("unchecked")
-    void showAdsbRadarToolErrorDoesNotEmitSceneChange() {
+    void showAdsbRadarToolErrorDoesNotEmitBackgroundChange() {
         AdsbDataAdapter adsbAdapter = mock(AdsbDataAdapter.class);
         AgentSession sessionWithAdsb =
                 new AgentSession(
@@ -939,10 +1218,10 @@ class AgentSessionTest {
         sessionWithAdsb.onAudioStreamStart("stream-1");
         sttConsumer[0].accept(new SttEvent.Final("Show me the radar.", 500));
 
-        boolean hasSceneChange = events.stream()
-                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent sc
-                        && "adsb-radar".equals(sc.sceneId()));
-        assertThat(hasSceneChange).isFalse();
+        boolean hasBackgroundChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent bc
+                        && "vfr".equals(bc.backgroundId()));
+        assertThat(hasBackgroundChange).isFalse();
         org.mockito.Mockito.verify(adsbAdapter, never()).startPolling(any());
         sessionWithAdsb.close();
     }
@@ -1000,7 +1279,8 @@ class AgentSessionTest {
                 .when(llmAdapter).generate(any(), any());
 
         when(toolDispatcher.dispatch(ShowAdsbRadarTool.TOOL_NAME, Map.of()))
-                .thenReturn(Map.of("status", "adsb_radar_activated", "scene_id", "adsb-radar"));
+                .thenReturn(Map.of("status", "adsb_radar_activated",
+                        "background_id", "vfr", "overlay_id", "adsb"));
 
         sessionWithAdsb.onAudioStreamStart("stream-1");
         sttConsumer[0].accept(new SttEvent.Final("Show radar.", 500));
@@ -1020,10 +1300,10 @@ class AgentSessionTest {
         sessionWithAdsb.close();
     }
 
-    /** show_adsb_radar with null adsbDataAdapter still emits SceneChangeEvent (covers null branch). */
+    /** show_adsb_radar with null adsbDataAdapter still emits BackgroundChangeEvent + OverlayAddEvent (covers null branch). */
     @Test
     @SuppressWarnings("unchecked")
-    void showAdsbRadarWithNullAdapterEmitsSceneChangeOnly() {
+    void showAdsbRadarWithNullAdapterEmitsBackgroundAndOverlayOnly() {
         // Default session has null adsbDataAdapter
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
@@ -1050,16 +1330,22 @@ class AgentSessionTest {
                 .when(llmAdapter).generate(any(), any());
 
         when(toolDispatcher.dispatch(ShowAdsbRadarTool.TOOL_NAME, Map.of()))
-                .thenReturn(Map.of("status", "adsb_radar_activated", "scene_id", "adsb-radar"));
+                .thenReturn(Map.of("status", "adsb_radar_activated",
+                        "background_id", "vfr", "overlay_id", "adsb"));
 
         session.onAudioStreamStart("stream-1");
         sttConsumer[0].accept(new SttEvent.Final("Show radar please.", 500));
 
-        // SceneChangeEvent still emitted even when adsbDataAdapter is null
-        boolean hasSceneChange = events.stream()
-                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent sc
-                        && "adsb-radar".equals(sc.sceneId()));
-        assertThat(hasSceneChange).isTrue();
+        // BackgroundChangeEvent and OverlayAddEvent still emitted even when adsbDataAdapter is null
+        boolean hasBackgroundChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent bc
+                        && "vfr".equals(bc.backgroundId()));
+        assertThat(hasBackgroundChange).isTrue();
+
+        boolean hasOverlayAdd = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayAddEvent oa
+                        && "adsb".equals(oa.overlayId()));
+        assertThat(hasOverlayAdd).isTrue();
     }
 
     /**

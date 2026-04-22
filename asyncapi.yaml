@@ -34,9 +34,11 @@ channels:
           - $ref: '#/components/messages/MapFocus'
           - $ref: '#/components/messages/MapClear'
           - $ref: '#/components/messages/ConversationEnded'
-          - $ref: '#/components/messages/SceneChange'
+          - $ref: '#/components/messages/BackgroundChange'
+          - $ref: '#/components/messages/OverlayAdd'
+          - $ref: '#/components/messages/OverlayRemove'
+          - $ref: '#/components/messages/OverlayClear'
           - $ref: '#/components/messages/SceneDataPush'
-          - $ref: '#/components/messages/SceneClear'
     publish:
       summary: Messages Client sends to Server
       message:
@@ -341,24 +343,54 @@ components:
           type:
             type: string
             const: ConversationEnded
-    SceneChange:
+    BackgroundChange:
       payload:
         type: object
-        required: [type, sceneId]
+        required: [type, backgroundId]
         properties:
           type:
             type: string
-            const: SceneChange
-          sceneId:
+            const: BackgroundChange
+          backgroundId:
             type: string
-            description: Identifier of the scene to activate (e.g. globe, space, dashboard)
-          params:
-            type: object
-            description: Optional scene-specific parameters from the LLM tool call
+            description: Identifier of the background to activate (e.g. vfr, globe, space, dashboard)
           transition:
             type: string
             enum: [crossfade, slide, instant]
             description: Transition animation; defaults to crossfade when absent
+    OverlayAdd:
+      payload:
+        type: object
+        required: [type, overlayId]
+        properties:
+          type:
+            type: string
+            const: OverlayAdd
+          overlayId:
+            type: string
+            description: Identifier of the overlay to add (e.g. adsb)
+          params:
+            type: object
+            description: Optional overlay-specific parameters from the LLM tool call
+    OverlayRemove:
+      payload:
+        type: object
+        required: [type, overlayId]
+        properties:
+          type:
+            type: string
+            const: OverlayRemove
+          overlayId:
+            type: string
+            description: Identifier of the overlay to remove
+    OverlayClear:
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type:
+            type: string
+            const: OverlayClear
     SceneDataPush:
       payload:
         type: object
@@ -372,11 +404,3 @@ components:
             description: Data model identifier (e.g. adsb, stock_quotes)
           data:
             description: Data payload conforming to the named data model schema
-    SceneClear:
-      payload:
-        type: object
-        required: [type]
-        properties:
-          type:
-            type: string
-            const: SceneClear

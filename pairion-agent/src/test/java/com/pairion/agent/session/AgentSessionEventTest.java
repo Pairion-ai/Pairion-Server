@@ -52,4 +52,44 @@ class AgentSessionEventTest {
         AgentSessionEvent.MapClearEvent event = new AgentSessionEvent.MapClearEvent();
         assertThat(event).isInstanceOf(AgentSessionEvent.class);
     }
+
+    @Test
+    void backgroundChangeEvent() {
+        AgentSessionEvent.BackgroundChangeEvent event =
+                new AgentSessionEvent.BackgroundChangeEvent("vfr", "crossfade");
+        assertThat(event.backgroundId()).isEqualTo("vfr");
+        assertThat(event.transition()).isEqualTo("crossfade");
+        assertThat(event).isInstanceOf(AgentSessionEvent.class);
+    }
+
+    @Test
+    void overlayAddEvent() {
+        AgentSessionEvent.OverlayAddEvent event =
+                new AgentSessionEvent.OverlayAddEvent("adsb", java.util.Map.of("radius_nm", 8));
+        assertThat(event.overlayId()).isEqualTo("adsb");
+        assertThat(event.params()).containsKey("radius_nm");
+        assertThat(event).isInstanceOf(AgentSessionEvent.class);
+    }
+
+    @Test
+    void overlayAddEventNullParams() {
+        AgentSessionEvent.OverlayAddEvent event =
+                new AgentSessionEvent.OverlayAddEvent("adsb", null);
+        assertThat(event.overlayId()).isEqualTo("adsb");
+        assertThat(event.params()).isNull();
+    }
+
+    @Test
+    void overlayRemoveEvent() {
+        AgentSessionEvent.OverlayRemoveEvent event =
+                new AgentSessionEvent.OverlayRemoveEvent("adsb");
+        assertThat(event.overlayId()).isEqualTo("adsb");
+        assertThat(event).isInstanceOf(AgentSessionEvent.class);
+    }
+
+    @Test
+    void overlayClearEvent() {
+        AgentSessionEvent.OverlayClearEvent event = new AgentSessionEvent.OverlayClearEvent();
+        assertThat(event).isInstanceOf(AgentSessionEvent.class);
+    }
 }

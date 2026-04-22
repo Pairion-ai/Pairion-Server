@@ -20,7 +20,10 @@ public sealed interface AgentSessionEvent
                 AgentSessionEvent.MapFocusEvent,
                 AgentSessionEvent.MapClearEvent,
                 AgentSessionEvent.ConversationEndedEvent,
-                AgentSessionEvent.SceneChangeEvent,
+                AgentSessionEvent.BackgroundChangeEvent,
+                AgentSessionEvent.OverlayAddEvent,
+                AgentSessionEvent.OverlayRemoveEvent,
+                AgentSessionEvent.OverlayClearEvent,
                 AgentSessionEvent.SceneDataPushEvent {
 
     /**
@@ -124,25 +127,55 @@ public sealed interface AgentSessionEvent
     record ConversationEndedEvent() implements AgentSessionEvent {}
 
     /**
-     * Commands the client to switch the active background scene.
+     * Commands the client to switch the active background layer.
      *
-     * <p>Emitted when the LLM calls the {@code set_scene} tool. The client {@code SceneManager}
-     * dynamically loads the target scene and starts the transition animation.
+     * <p>Emitted when the LLM calls the {@code set_background} tool. The client
+     * {@code LayerManager} loads the target background and applies the transition animation. The
+     * overlay stack is preserved — overlays reposition themselves on the new background.
      *
-     * @param sceneId the identifier of the scene to activate (e.g. {@code "globe"},
-     *     {@code "space"}, {@code "dashboard"})
-     * @param params optional scene-specific parameters from the LLM tool call
+     * @param backgroundId the identifier of the background to activate (e.g. {@code "vfr"},
+     *     {@code "globe"}, {@code "space"}, {@code "dashboard"})
      * @param transition transition animation: {@code "crossfade"}, {@code "slide"}, or
      *     {@code "instant"}
      */
-    record SceneChangeEvent(String sceneId, Map<String, Object> params, String transition)
+    record BackgroundChangeEvent(String backgroundId, String transition)
             implements AgentSessionEvent {}
 
     /**
-     * Carries a data model payload for the active scene.
+     * Commands the client to add an overlay on top of the current background.
+     *
+     * <p>Emitted when the LLM calls the {@code add_overlay} tool. Multiple overlays may be active
+     * simultaneously; the client stacks them in the order received.
+     *
+     * @param overlayId the identifier of the overlay to add (e.g. {@code "adsb"})
+     * @param params optional overlay-specific parameters from the LLM tool call
+     */
+    record OverlayAddEvent(String overlayId, Map<String, Object> params)
+            implements AgentSessionEvent {}
+
+    /**
+     * Commands the client to remove a specific named overlay from the display stack.
+     *
+     * <p>Emitted when the LLM calls the {@code remove_overlay} tool. If the named overlay is not
+     * currently active, the client silently ignores this event.
+     *
+     * @param overlayId the identifier of the overlay to deactivate (e.g. {@code "adsb"})
+     */
+    record OverlayRemoveEvent(String overlayId) implements AgentSessionEvent {}
+
+    /**
+     * Commands the client to remove all active overlays from the display stack.
+     *
+     * <p>Emitted when the LLM calls the {@code clear_overlays} tool. The active background remains
+     * unchanged; only the overlay stack is cleared.
+     */
+    record OverlayClearEvent() implements AgentSessionEvent {}
+
+    /**
+     * Carries a data model payload for an active overlay.
      *
      * <p>Emitted by the server whenever a data adapter (e.g. ADS-B) produces a new snapshot. The
-     * client {@code SceneManager} routes this to the active scene's {@code sceneData} property.
+     * client {@code LayerManager} routes this to the active overlay matching {@code modelId}.
      *
      * @param modelId the data model identifier (e.g. {@code "adsb"})
      * @param data the data payload; structure is defined by the named data model's schema

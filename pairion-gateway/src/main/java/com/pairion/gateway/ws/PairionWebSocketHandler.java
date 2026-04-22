@@ -16,10 +16,13 @@ import com.pairion.core.ws.DeviceIdentify;
 import com.pairion.core.ws.HeartbeatPing;
 import com.pairion.core.ws.HeartbeatPong;
 import com.pairion.core.ws.LlmTokenStream;
+import com.pairion.core.ws.BackgroundChange;
 import com.pairion.core.ws.ConversationEnded;
 import com.pairion.core.ws.MapClear;
 import com.pairion.core.ws.MapFocus;
-import com.pairion.core.ws.SceneChange;
+import com.pairion.core.ws.OverlayAdd;
+import com.pairion.core.ws.OverlayClear;
+import com.pairion.core.ws.OverlayRemove;
 import com.pairion.core.ws.SceneDataPush;
 import com.pairion.core.ws.SessionOpened;
 import com.pairion.core.ws.SpeechEnded;
@@ -328,13 +331,18 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             case AgentSessionEvent.ConversationEndedEvent ignored ->
                     objectMapper.writeValueAsString(
                             new ConversationEnded(ConversationEnded.TYPE));
-            case AgentSessionEvent.SceneChangeEvent sc ->
+            case AgentSessionEvent.BackgroundChangeEvent bc ->
                     objectMapper.writeValueAsString(
-                            new SceneChange(
-                                    SceneChange.TYPE,
-                                    sc.sceneId(),
-                                    sc.params(),
-                                    sc.transition()));
+                            new BackgroundChange(
+                                    BackgroundChange.TYPE, bc.backgroundId(), bc.transition()));
+            case AgentSessionEvent.OverlayAddEvent oa ->
+                    objectMapper.writeValueAsString(
+                            new OverlayAdd(OverlayAdd.TYPE, oa.overlayId(), oa.params()));
+            case AgentSessionEvent.OverlayRemoveEvent or ->
+                    objectMapper.writeValueAsString(
+                            new OverlayRemove(OverlayRemove.TYPE, or.overlayId()));
+            case AgentSessionEvent.OverlayClearEvent ignored ->
+                    objectMapper.writeValueAsString(new OverlayClear(OverlayClear.TYPE));
             case AgentSessionEvent.SceneDataPushEvent sdp ->
                     objectMapper.writeValueAsString(
                             new SceneDataPush(SceneDataPush.TYPE, sdp.modelId(), sdp.data()));

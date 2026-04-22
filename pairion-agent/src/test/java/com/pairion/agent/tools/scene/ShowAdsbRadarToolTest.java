@@ -29,9 +29,15 @@ class ShowAdsbRadarToolTest {
     }
 
     @Test
-    void executeReturnsAdsbRadarSceneId() {
+    void executeReturnsVfrBackgroundId() {
         Map<String, Object> result = tool.execute(Map.of());
-        assertThat(result).containsEntry("scene_id", "adsb-radar");
+        assertThat(result).containsEntry("background_id", "vfr");
+    }
+
+    @Test
+    void executeReturnsAdsbOverlayId() {
+        Map<String, Object> result = tool.execute(Map.of());
+        assertThat(result).containsEntry("overlay_id", "adsb");
     }
 
     @Test

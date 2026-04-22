@@ -57,25 +57,40 @@ class SoulPromptProviderTest {
     }
 
     @Test
-    void promptInstructsSetSceneForGlobe() {
+    void promptInstructsSetBackgroundForGlobe() {
         DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
         String prompt = provider.getSystemPrompt("session-1");
-        assertThat(prompt).contains("set_scene");
+        assertThat(prompt).contains("set_background");
         assertThat(prompt).contains("globe");
     }
 
     @Test
-    void promptInstructsSetSceneForSpace() {
+    void promptInstructsSetBackgroundForSpace() {
         DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
         String prompt = provider.getSystemPrompt("session-1");
         assertThat(prompt).contains("space");
     }
 
     @Test
-    void promptInstructsSetSceneForDashboard() {
+    void promptInstructsSetBackgroundForDashboard() {
         DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
         String prompt = provider.getSystemPrompt("session-1");
         assertThat(prompt).contains("dashboard");
+    }
+
+    @Test
+    void promptInstructsSetBackgroundForVfr() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        assertThat(prompt).contains("vfr");
+    }
+
+    @Test
+    void promptInstructsAddOverlayTool() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        assertThat(prompt).contains("add_overlay");
+        assertThat(prompt).contains("adsb");
     }
 
     @Test
@@ -83,6 +98,5 @@ class SoulPromptProviderTest {
         DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
         String prompt = provider.getSystemPrompt("session-1");
         assertThat(prompt).contains("show_adsb_radar");
-        assertThat(prompt).contains("adsb-radar");
     }
 }

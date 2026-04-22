@@ -280,31 +280,73 @@ class WebSocketMessageTest {
     }
 
     @Test
-    void sceneChangeRoundTrip() throws Exception {
-        SceneChange msg = new SceneChange("SceneChange", "globe", Map.of("lat", 35.6), "crossfade");
+    void backgroundChangeRoundTrip() throws Exception {
+        BackgroundChange msg = new BackgroundChange("BackgroundChange", "globe", "crossfade");
         String json = mapper.writeValueAsString(msg);
         WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
-        assertThat(deserialized).isInstanceOf(SceneChange.class);
-        SceneChange result = (SceneChange) deserialized;
-        assertThat(result.type()).isEqualTo("SceneChange");
-        assertThat(result.sceneId()).isEqualTo("globe");
-        assertThat(result.params()).containsKey("lat");
+        assertThat(deserialized).isInstanceOf(BackgroundChange.class);
+        BackgroundChange result = (BackgroundChange) deserialized;
+        assertThat(result.type()).isEqualTo("BackgroundChange");
+        assertThat(result.backgroundId()).isEqualTo("globe");
         assertThat(result.transition()).isEqualTo("crossfade");
-        assertThat(SceneChange.TYPE).isEqualTo("SceneChange");
+        assertThat(BackgroundChange.TYPE).isEqualTo("BackgroundChange");
     }
 
     @Test
-    void sceneChangeNullParamsAndTransitionOmitted() throws Exception {
-        SceneChange msg = new SceneChange("SceneChange", "dashboard", null, null);
+    void backgroundChangeNullTransitionOmitted() throws Exception {
+        BackgroundChange msg = new BackgroundChange("BackgroundChange", "dashboard", null);
         String json = mapper.writeValueAsString(msg);
-        assertThat(json).doesNotContain("\"params\"");
         assertThat(json).doesNotContain("\"transition\"");
         WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
-        assertThat(deserialized).isInstanceOf(SceneChange.class);
-        SceneChange result = (SceneChange) deserialized;
-        assertThat(result.sceneId()).isEqualTo("dashboard");
-        assertThat(result.params()).isNull();
+        assertThat(deserialized).isInstanceOf(BackgroundChange.class);
+        BackgroundChange result = (BackgroundChange) deserialized;
+        assertThat(result.backgroundId()).isEqualTo("dashboard");
         assertThat(result.transition()).isNull();
+    }
+
+    @Test
+    void overlayAddRoundTrip() throws Exception {
+        OverlayAdd msg = new OverlayAdd("OverlayAdd", "adsb", Map.of("radius_nm", 8));
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(OverlayAdd.class);
+        OverlayAdd result = (OverlayAdd) deserialized;
+        assertThat(result.type()).isEqualTo("OverlayAdd");
+        assertThat(result.overlayId()).isEqualTo("adsb");
+        assertThat(result.params()).containsKey("radius_nm");
+        assertThat(OverlayAdd.TYPE).isEqualTo("OverlayAdd");
+    }
+
+    @Test
+    void overlayAddNullParamsOmitted() throws Exception {
+        OverlayAdd msg = new OverlayAdd("OverlayAdd", "adsb", null);
+        String json = mapper.writeValueAsString(msg);
+        assertThat(json).doesNotContain("\"params\"");
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(OverlayAdd.class);
+        assertThat(((OverlayAdd) deserialized).params()).isNull();
+    }
+
+    @Test
+    void overlayRemoveRoundTrip() throws Exception {
+        OverlayRemove msg = new OverlayRemove("OverlayRemove", "adsb");
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(OverlayRemove.class);
+        OverlayRemove result = (OverlayRemove) deserialized;
+        assertThat(result.type()).isEqualTo("OverlayRemove");
+        assertThat(result.overlayId()).isEqualTo("adsb");
+        assertThat(OverlayRemove.TYPE).isEqualTo("OverlayRemove");
+    }
+
+    @Test
+    void overlayClearRoundTrip() throws Exception {
+        OverlayClear msg = new OverlayClear("OverlayClear");
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(OverlayClear.class);
+        assertThat(((OverlayClear) deserialized).type()).isEqualTo("OverlayClear");
+        assertThat(OverlayClear.TYPE).isEqualTo("OverlayClear");
     }
 
     @Test
@@ -321,13 +363,4 @@ class WebSocketMessageTest {
         assertThat(SceneDataPush.TYPE).isEqualTo("SceneDataPush");
     }
 
-    @Test
-    void sceneClearRoundTrip() throws Exception {
-        SceneClear msg = new SceneClear("SceneClear");
-        String json = mapper.writeValueAsString(msg);
-        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
-        assertThat(deserialized).isInstanceOf(SceneClear.class);
-        assertThat(((SceneClear) deserialized).type()).isEqualTo("SceneClear");
-        assertThat(SceneClear.TYPE).isEqualTo("SceneClear");
-    }
 }

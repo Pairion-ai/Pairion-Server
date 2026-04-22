@@ -71,13 +71,23 @@ class PairionWebSocketHandlerTest {
                         + "\"bearerToken\":\"tok\",\"clientVersion\":\"1.0\"}";
         handler.handleTextMessage(session, new TextMessage(json));
 
+        // DeviceIdentify auto-activates ADS-B radar: BackgroundChange + OverlayAdd + SessionOpened
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
-        verify(session).sendMessage(captor.capture());
+        verify(session, org.mockito.Mockito.atLeast(1)).sendMessage(captor.capture());
 
-        WebSocketMessage response =
-                objectMapper.readValue(captor.getValue().getPayload(), WebSocketMessage.class);
-        assertThat(response).isInstanceOf(SessionOpened.class);
-        SessionOpened opened = (SessionOpened) response;
+        SessionOpened opened = captor.getAllValues().stream()
+                .map(msg -> {
+                    try {
+                        return objectMapper.readValue(msg.getPayload(), WebSocketMessage.class);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .filter(msg -> msg instanceof SessionOpened)
+                .map(msg -> (SessionOpened) msg)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("SessionOpened not found in messages"));
+
         assertThat(opened.type()).isEqualTo("SessionOpened");
         assertThat(opened.serverVersion()).isEqualTo("0.3.0");
         assertThat(opened.sessionId()).isNotEmpty();
@@ -328,32 +338,56 @@ class PairionWebSocketHandlerTest {
     }
 
     @Test
-    void sendAgentEventSceneChangeSendsJson() throws Exception {
+    void sendAgentEventBackgroundChangeSendsJson() throws Exception {
         handler.sendAgentEvent(
                 session,
-                new com.pairion.agent.session.AgentSessionEvent.SceneChangeEvent(
-                        "globe", java.util.Map.of("zoom", "country"), "crossfade"));
+                new com.pairion.agent.session.AgentSessionEvent.BackgroundChangeEvent(
+                        "globe", "crossfade"));
 
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(captor.capture());
         String payload = captor.getValue().getPayload();
-        assertThat(payload).contains("SceneChange");
+        assertThat(payload).contains("BackgroundChange");
         assertThat(payload).contains("globe");
         assertThat(payload).contains("crossfade");
     }
 
     @Test
-    void sendAgentEventSceneChangeNullParamsSendsJson() throws Exception {
+    void sendAgentEventOverlayAddSendsJson() throws Exception {
         handler.sendAgentEvent(
                 session,
-                new com.pairion.agent.session.AgentSessionEvent.SceneChangeEvent(
-                        "dashboard", null, "instant"));
+                new com.pairion.agent.session.AgentSessionEvent.OverlayAddEvent("adsb", null));
 
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(captor.capture());
         String payload = captor.getValue().getPayload();
-        assertThat(payload).contains("SceneChange");
-        assertThat(payload).contains("dashboard");
+        assertThat(payload).contains("OverlayAdd");
+        assertThat(payload).contains("adsb");
+    }
+
+    @Test
+    void sendAgentEventOverlayRemoveSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.OverlayRemoveEvent("adsb"));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        String payload = captor.getValue().getPayload();
+        assertThat(payload).contains("OverlayRemove");
+        assertThat(payload).contains("adsb");
+    }
+
+    @Test
+    void sendAgentEventOverlayClearSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.OverlayClearEvent());
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        String payload = captor.getValue().getPayload();
+        assertThat(payload).contains("OverlayClear");
     }
 
     @Test

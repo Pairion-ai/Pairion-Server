@@ -7,8 +7,11 @@ import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.agent.tools.ToolDispatcher;
+import com.pairion.agent.tools.layer.AddOverlayTool;
+import com.pairion.agent.tools.layer.ClearOverlaysTool;
+import com.pairion.agent.tools.layer.RemoveOverlayTool;
+import com.pairion.agent.tools.layer.SetBackgroundTool;
 import com.pairion.agent.tools.map.MapFocusTool;
-import com.pairion.agent.tools.scene.SetSceneTool;
 import com.pairion.agent.tools.scene.ShowAdsbRadarTool;
 import com.pairion.agent.util.MarkdownStripper;
 import com.pairion.core.agent.AgentState;
@@ -295,9 +298,11 @@ public class AgentSession {
     }
 
     /**
-     * Activates the ADS-B radar scene by emitting a {@link AgentSessionEvent.SceneChangeEvent}
-     * and, if an {@link AdsbDataAdapter} is configured, starts the polling loop. Each poll
-     * delivers a {@link AgentSessionEvent.SceneDataPushEvent} with model ID {@code "adsb"}.
+     * Activates the ADS-B radar by emitting a {@link AgentSessionEvent.BackgroundChangeEvent} for
+     * the VFR sectional chart background, an {@link AgentSessionEvent.OverlayAddEvent} for the
+     * ADS-B aircraft overlay, and, if an {@link AdsbDataAdapter} is configured, starts the polling
+     * loop. Each poll delivers a {@link AgentSessionEvent.SceneDataPushEvent} with model ID
+     * {@code "adsb"}.
      *
      * <p>Public so the WebSocket handler can auto-activate on session start during debugging.
      */
@@ -309,9 +314,9 @@ public class AgentSession {
      * @see #activateAdsbRadar()
      */
     private void emitAdsbRadar() {
-        eventSink.accept(
-                new AgentSessionEvent.SceneChangeEvent("adsb-radar", null, "crossfade"));
-        log.info("scene.adsb-radar.activated");
+        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent("vfr", "crossfade"));
+        eventSink.accept(new AgentSessionEvent.OverlayAddEvent("adsb", null));
+        log.info("layer.adsb-radar.activated");
         if (adsbDataAdapter != null) {
             adsbDataAdapter.startPolling(
                     aircraft ->
@@ -321,19 +326,51 @@ public class AgentSession {
     }
 
     /**
-     * Emits a {@link AgentSessionEvent.SceneChangeEvent} derived from a successful {@code set_scene}
-     * tool result and forwards it to the client.
+     * Emits a {@link AgentSessionEvent.BackgroundChangeEvent} derived from a successful
+     * {@code set_background} tool result and forwards it to the client.
      *
-     * @param result the tool result map containing {@code scene_id}, {@code transition}, and
-     *               optionally {@code params}
+     * @param result the tool result map containing {@code background_id} and {@code transition}
      */
-    private void emitSceneChange(Map<String, Object> result) {
-        String sceneId = (String) result.get("scene_id");
+    private void emitBackgroundChange(Map<String, Object> result) {
+        String backgroundId = (String) result.get("background_id");
+        String transition = (String) result.getOrDefault("transition", "crossfade");
+        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent(backgroundId, transition));
+        log.info("layer.background.emitted: backgroundId={}, transition={}", backgroundId,
+                transition);
+    }
+
+    /**
+     * Emits an {@link AgentSessionEvent.OverlayAddEvent} derived from a successful
+     * {@code add_overlay} tool result and forwards it to the client.
+     *
+     * @param result the tool result map containing {@code overlay_id} and optionally {@code params}
+     */
+    private void emitOverlayAdd(Map<String, Object> result) {
+        String overlayId = (String) result.get("overlay_id");
         @SuppressWarnings("unchecked")
         Map<String, Object> params = (Map<String, Object>) result.get("params");
-        String transition = (String) result.getOrDefault("transition", "crossfade");
-        eventSink.accept(new AgentSessionEvent.SceneChangeEvent(sceneId, params, transition));
-        log.info("scene.change.emitted: sceneId={}, transition={}", sceneId, transition);
+        eventSink.accept(new AgentSessionEvent.OverlayAddEvent(overlayId, params));
+        log.info("layer.overlay.add.emitted: overlayId={}", overlayId);
+    }
+
+    /**
+     * Emits an {@link AgentSessionEvent.OverlayRemoveEvent} derived from a successful
+     * {@code remove_overlay} tool result and forwards it to the client.
+     *
+     * @param result the tool result map containing {@code overlay_id}
+     */
+    private void emitOverlayRemove(Map<String, Object> result) {
+        String overlayId = (String) result.get("overlay_id");
+        eventSink.accept(new AgentSessionEvent.OverlayRemoveEvent(overlayId));
+        log.info("layer.overlay.remove.emitted: overlayId={}", overlayId);
+    }
+
+    /**
+     * Emits an {@link AgentSessionEvent.OverlayClearEvent} and forwards it to the client.
+     */
+    private void emitOverlayClear() {
+        eventSink.accept(new AgentSessionEvent.OverlayClearEvent());
+        log.info("layer.overlay.clear.emitted");
     }
 
     /**
@@ -439,9 +476,18 @@ public class AgentSession {
                         && result.containsKey("latitude")
                         && result.containsKey("longitude")) {
                     emitMapFocusFromWeather(result);
-                } else if (SetSceneTool.TOOL_NAME.equals(tc.toolName())
+                } else if (SetBackgroundTool.TOOL_NAME.equals(tc.toolName())
                         && !result.containsKey("error")) {
-                    emitSceneChange(result);
+                    emitBackgroundChange(result);
+                } else if (AddOverlayTool.TOOL_NAME.equals(tc.toolName())
+                        && !result.containsKey("error")) {
+                    emitOverlayAdd(result);
+                } else if (RemoveOverlayTool.TOOL_NAME.equals(tc.toolName())
+                        && !result.containsKey("error")) {
+                    emitOverlayRemove(result);
+                } else if (ClearOverlaysTool.TOOL_NAME.equals(tc.toolName())
+                        && !result.containsKey("error")) {
+                    emitOverlayClear();
                 } else if (ShowAdsbRadarTool.TOOL_NAME.equals(tc.toolName())
                         && !result.containsKey("error")) {
                     emitAdsbRadar();
@@ -705,28 +751,26 @@ public class AgentSession {
                                                                 + " or city")),
                                 "required", List.of("location"))),
                 new ToolDefinition(
-                        "set_scene",
-                        "Switch the background scene to match the current conversation topic."
+                        "set_background",
+                        "Switch the background display to match the current conversation topic."
                                 + " Call this immediately, with NO text output beforehand, when"
                                 + " the conversation shifts to a topic that maps to a built-in"
-                                + " scene: 'globe' for geography, weather, or location topics;"
-                                + " 'space' for astronomy or space topics. Call with"
-                                + " scene_id='dashboard' when returning to general topics.",
+                                + " background: 'globe' for geography, weather, or location"
+                                + " topics; 'space' for astronomy or space topics; 'vfr' for"
+                                + " aviation or flight topics. Call with background_id='dashboard'"
+                                + " when returning to general topics. The overlay stack is"
+                                + " preserved across background switches.",
                         Map.of(
                                 "type", "object",
                                 "properties",
                                         Map.of(
-                                                "scene_id",
+                                                "background_id",
                                                 Map.of(
                                                         "type", "string",
                                                         "description",
-                                                        "Scene identifier: 'globe', 'space',"
+                                                        "Background identifier: 'globe',"
+                                                                + " 'space', 'vfr',"
                                                                 + " or 'dashboard'"),
-                                                "params",
-                                                Map.of(
-                                                        "type", "object",
-                                                        "description",
-                                                        "Optional scene-specific parameters"),
                                                 "transition",
                                                 Map.of(
                                                         "type", "string",
@@ -736,12 +780,55 @@ public class AgentSession {
                                                         "description",
                                                         "Transition animation, default:"
                                                                 + " crossfade")),
-                                "required", List.of("scene_id"))),
+                                "required", List.of("background_id"))),
+                new ToolDefinition(
+                        "add_overlay",
+                        "Add a data overlay on top of the current background. Multiple overlays"
+                                + " can be active simultaneously. Available overlays: 'adsb'"
+                                + " (live ADS-B aircraft radar from OpenSky Network).",
+                        Map.of(
+                                "type", "object",
+                                "properties",
+                                        Map.of(
+                                                "overlay_id",
+                                                Map.of(
+                                                        "type", "string",
+                                                        "description",
+                                                        "Overlay identifier: 'adsb'"),
+                                                "params",
+                                                Map.of(
+                                                        "type", "object",
+                                                        "description",
+                                                        "Optional overlay-specific parameters")),
+                                "required", List.of("overlay_id"))),
+                new ToolDefinition(
+                        "remove_overlay",
+                        "Remove a specific named overlay from the display stack. The background"
+                                + " and other overlays remain unchanged.",
+                        Map.of(
+                                "type", "object",
+                                "properties",
+                                        Map.of(
+                                                "overlay_id",
+                                                Map.of(
+                                                        "type", "string",
+                                                        "description",
+                                                        "Overlay identifier to remove")),
+                                "required", List.of("overlay_id"))),
+                new ToolDefinition(
+                        "clear_overlays",
+                        "Remove all active overlays from the display stack. The background"
+                                + " remains unchanged.",
+                        Map.of(
+                                "type", "object",
+                                "properties", Map.of(),
+                                "required", List.of())),
                 new ToolDefinition(
                         "show_adsb_radar",
-                        "Display a live ADS-B radar showing real-time aircraft positions on the"
-                                + " radar scene. Call this when the user asks to see live aircraft,"
-                                + " flight traffic, planes in the sky, or air traffic radar.",
+                        "Display a live ADS-B radar showing real-time aircraft positions. Call"
+                                + " this when the user asks to see live aircraft, flight traffic,"
+                                + " planes in the sky, or air traffic radar. Sets the VFR"
+                                + " sectional chart background and activates the ADS-B overlay.",
                         Map.of(
                                 "type", "object",
                                 "properties", Map.of(),
