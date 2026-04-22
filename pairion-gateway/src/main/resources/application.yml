@@ -40,12 +40,12 @@ pairion:
       # Home location — used to centre the radar display and derive the bounding box
       home-lat: 33.814427   # home latitude (decimal degrees)
       home-lon: -96.582106  # home longitude (decimal degrees)
-      radius-nm: 8          # radar radius in nautical miles
+      radius-nm: 25         # radar radius in nautical miles
       # Geographic bounding box for ADS-B state queries (continental US defaults)
-      lamin: 33.681    # southern boundary (~8nm south of home)
-      lomin: -96.715   # western boundary (~8nm west of home)
-      lamax: 33.947    # northern boundary (~8nm north of home)
-      lomax: -96.449   # eastern boundary (~8nm east of home)
+      lamin: 33.398    # southern boundary (~25nm south of home)
+      lomin: -97.084   # western boundary (~25nm west of home)
+      lamax: 34.231    # northern boundary (~25nm north of home)
+      lomax: -96.080   # eastern boundary (~25nm east of home)
       poll-interval-seconds: 10
       # OpenSky Network credentials (HTTP Basic Auth — increases rate limits)
       opensky-username: aallard

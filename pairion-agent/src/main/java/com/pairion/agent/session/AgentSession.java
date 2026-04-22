@@ -298,6 +298,15 @@ public class AgentSession {
      * Activates the ADS-B radar scene by emitting a {@link AgentSessionEvent.SceneChangeEvent}
      * and, if an {@link AdsbDataAdapter} is configured, starts the polling loop. Each poll
      * delivers a {@link AgentSessionEvent.SceneDataPushEvent} with model ID {@code "adsb"}.
+     *
+     * <p>Public so the WebSocket handler can auto-activate on session start during debugging.
+     */
+    public void activateAdsbRadar() {
+        emitAdsbRadar();
+    }
+
+    /**
+     * @see #activateAdsbRadar()
      */
     private void emitAdsbRadar() {
         eventSink.accept(

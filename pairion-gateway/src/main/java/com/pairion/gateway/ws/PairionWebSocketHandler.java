@@ -202,6 +202,10 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                         event -> sendAgentEvent(session, event));
         sessions.put(session.getId(), agentSession);
 
+        // Auto-activate ADS-B radar on connect during debugging so the scene populates
+        // without requiring a voice command.
+        agentSession.activateAdsbRadar();
+
         SessionOpened response =
                 new SessionOpened(SessionOpened.TYPE, UUID.randomUUID().toString(), SERVER_VERSION);
 
