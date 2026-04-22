@@ -37,6 +37,10 @@ pairion:
 
   data:
     adsb:
+      # Home location — used to centre the radar display and derive the bounding box
+      home-lat: 33.814427   # home latitude (decimal degrees)
+      home-lon: -96.582106  # home longitude (decimal degrees)
+      radius-nm: 8          # radar radius in nautical miles
       # Geographic bounding box for ADS-B state queries (continental US defaults)
       lamin: 24.0      # southern boundary (latitude min, decimal degrees)
       lomin: -125.0    # western boundary (longitude min, decimal degrees)
