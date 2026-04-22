@@ -43,6 +43,9 @@ pairion:
       lamax: 49.0      # northern boundary (latitude max, decimal degrees)
       lomax: -66.0     # eastern boundary (longitude max, decimal degrees)
       poll-interval-seconds: 10
+      # OpenSky Network credentials (HTTP Basic Auth — increases rate limits)
+      opensky-username: aallard
+      opensky-password: Annabelle01*
 
 logging:
   level:
