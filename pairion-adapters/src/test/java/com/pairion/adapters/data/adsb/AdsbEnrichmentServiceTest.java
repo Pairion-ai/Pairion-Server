@@ -14,10 +14,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for {@link AdsbEnrichmentService} — rate limiting, TTL cache, and enrichment logic.
+ * Tests for {@link AdsbEnrichmentService} — independent rate limiters, TTL cache, and enrichment
+ * logic.
  *
- * <p>A stub {@link Clock} is injected so all time-based assertions are deterministic. The service
- * initialises {@code lastCallMs} to {@code -RATE_LIMIT_MS}, so the first call at
+ * <p>A stub {@link Clock} is injected so all time-based assertions are deterministic. Each rate
+ * limiter initialises its last-call timestamp to {@code -RATE_LIMIT_MS}, so the first call at
  * {@code clock.millis() == 0} always passes. Each test documents the exact clock-millis sequence
  * consumed by the code under test.
  */
@@ -27,8 +28,11 @@ class AdsbEnrichmentServiceTest {
     private Clock clock;
     private AdsbEnrichmentService service;
 
-    /** Shorthand constant for {@link AdsbEnrichmentService#RATE_LIMIT_MS}. */
-    private static final long RL = AdsbEnrichmentService.RATE_LIMIT_MS;
+    /** Shorthand for metadata rate limit window. */
+    private static final long MRL = AdsbEnrichmentService.METADATA_RATE_LIMIT_MS;
+
+    /** Shorthand for route rate limit window. */
+    private static final long RRL = AdsbEnrichmentService.ROUTE_RATE_LIMIT_MS;
 
     @BeforeEach
     void setUp() {
@@ -37,33 +41,76 @@ class AdsbEnrichmentServiceTest {
         service = new AdsbEnrichmentService(client, clock);
     }
 
-    // ── acquireRateLimit ──────────────────────────────────────────────────────
+    // ── acquireMetadataRateLimit ──────────────────────────────────────────────
 
     @Test
-    void rateLimitAllowsFirstCallAtTimeZero() {
-        // lastCallMs = -RL; 0 - (-RL) = RL >= RL → permitted
+    void metadataRateLimitAllowsFirstCallAtTimeZero() {
+        // lastMetadataCallMs = -MRL; 0 - (-MRL) = MRL >= MRL → permitted
         when(clock.millis()).thenReturn(0L);
-        assertThat(service.acquireRateLimit()).isTrue();
+        assertThat(service.acquireMetadataRateLimit()).isTrue();
     }
 
     @Test
-    void rateLimitBlocksSecondCallWithinWindow() {
-        // First call at t=0 passes and sets lastCallMs=0
+    void metadataRateLimitBlocksSecondCallWithinWindow() {
+        // First call at t=0 passes, sets lastMetadataCallMs=0
         when(clock.millis()).thenReturn(0L);
-        service.acquireRateLimit();
-        // t=500: 500 - 0 = 500 < RL(1000) → blocked
-        when(clock.millis()).thenReturn(500L);
-        assertThat(service.acquireRateLimit()).isFalse();
+        service.acquireMetadataRateLimit();
+        // t=MRL-1: MRL-1 - 0 = MRL-1 < MRL → blocked
+        when(clock.millis()).thenReturn(MRL - 1);
+        assertThat(service.acquireMetadataRateLimit()).isFalse();
     }
 
     @Test
-    void rateLimitAllowsCallAfterFullWindow() {
-        // First call at t=0 passes, lastCallMs=0
+    void metadataRateLimitAllowsCallAfterFullWindow() {
+        // First call at t=0, lastMetadataCallMs=0
         when(clock.millis()).thenReturn(0L);
-        service.acquireRateLimit();
-        // t=RL: RL - 0 = RL, NOT less-than RL → permitted
-        when(clock.millis()).thenReturn(RL);
-        assertThat(service.acquireRateLimit()).isTrue();
+        service.acquireMetadataRateLimit();
+        // t=MRL: MRL - 0 = MRL, NOT less-than MRL → permitted
+        when(clock.millis()).thenReturn(MRL);
+        assertThat(service.acquireMetadataRateLimit()).isTrue();
+    }
+
+    // ── acquireRouteRateLimit ─────────────────────────────────────────────────
+
+    @Test
+    void routeRateLimitAllowsFirstCallAtTimeZero() {
+        // lastRouteCallMs = -RRL; 0 - (-RRL) = RRL >= RRL → permitted
+        when(clock.millis()).thenReturn(0L);
+        assertThat(service.acquireRouteRateLimit()).isTrue();
+    }
+
+    @Test
+    void routeRateLimitBlocksSecondCallWithinWindow() {
+        when(clock.millis()).thenReturn(0L);
+        service.acquireRouteRateLimit();
+        when(clock.millis()).thenReturn(RRL - 1);
+        assertThat(service.acquireRouteRateLimit()).isFalse();
+    }
+
+    @Test
+    void routeRateLimitAllowsCallAfterFullWindow() {
+        when(clock.millis()).thenReturn(0L);
+        service.acquireRouteRateLimit();
+        when(clock.millis()).thenReturn(RRL);
+        assertThat(service.acquireRouteRateLimit()).isTrue();
+    }
+
+    // ── rate limiter independence ─────────────────────────────────────────────
+
+    @Test
+    void routeRateLimitIsIndependentOfMetadataRateLimit() {
+        // Exhaust the metadata limiter; route limiter must still permit.
+        when(clock.millis()).thenReturn(0L);
+        service.acquireMetadataRateLimit();
+        assertThat(service.acquireRouteRateLimit()).isTrue();
+    }
+
+    @Test
+    void metadataRateLimitIsIndependentOfRouteRateLimit() {
+        // Exhaust the route limiter; metadata limiter must still permit.
+        when(clock.millis()).thenReturn(0L);
+        service.acquireRouteRateLimit();
+        assertThat(service.acquireMetadataRateLimit()).isTrue();
     }
 
     // ── getCachedMetadata ─────────────────────────────────────────────────────
@@ -75,7 +122,7 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void metadataCacheHitReturnsCachedEntry() throws Exception {
-        // Prime cache: clock t=0 for acquire, t=0 for CachedEntry.createdAtMs
+        // Prime cache: acquireMetadataRateLimit(t=0), CachedEntry(t=0)
         when(clock.millis()).thenReturn(0L, 0L);
         when(client.fetchMetadata("abc123"))
                 .thenReturn(Optional.of(
@@ -110,16 +157,17 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void routeCacheHitReturnsCachedEntry() throws Exception {
-        // Prime route cache: acquire at t=0 (metadata), t=RL (route acquire), cache entries at same times
-        when(clock.millis()).thenReturn(0L, 0L, RL, RL);
+        // Both limiters are independent — metadata and route both acquire at t=0.
+        // Reads: acquireMetadata(0), cacheMetadata(0), acquireRoute(0), cacheRoute(0)
+        when(clock.millis()).thenReturn(0L, 0L, 0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
         when(client.fetchRoute("UAL123"))
                 .thenReturn(Optional.of(
                         new AdsbDataClient.RouteInfo("UAL123", "KDFW", "KLAX")));
         service.enrich(basicAircraft("abc123", "UAL123"));
 
-        // isExpired: RL+100 - RL = 100 < ROUTE_TTL → not expired
-        when(clock.millis()).thenReturn(RL + 100L);
+        // isExpired: 100 - 0 < ROUTE_TTL → not expired
+        when(clock.millis()).thenReturn(100L);
         Optional<AdsbDataClient.RouteInfo> cached = service.getCachedRoute("UAL123");
         assertThat(cached).isNotNull().isPresent();
         assertThat(cached.get().departureAirport()).isEqualTo("KDFW");
@@ -127,13 +175,13 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void routeCacheExpiredReturnsNull() throws Exception {
-        when(clock.millis()).thenReturn(0L, 0L, RL, RL);
+        when(clock.millis()).thenReturn(0L, 0L, 0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
         when(client.fetchRoute("UAL123")).thenReturn(Optional.empty());
         service.enrich(basicAircraft("abc123", "UAL123"));
 
-        // isExpired: now - RL > ROUTE_TTL → expired
-        when(clock.millis()).thenReturn(RL + AdsbEnrichmentService.ROUTE_TTL_MS + 1);
+        // isExpired: now - 0 > ROUTE_TTL → expired
+        when(clock.millis()).thenReturn(AdsbEnrichmentService.ROUTE_TTL_MS + 1);
         assertThat(service.getCachedRoute("UAL123")).isNull();
     }
 
@@ -141,7 +189,7 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichReturnsOriginalWhenMetadataEmptyAndNoCallsign() throws Exception {
-        // metadata: acquire(t=0) + cache(t=0); callsign null → no route
+        // acquireMetadata(0) + cache(0); no callsign → no route
         when(clock.millis()).thenReturn(0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
 
@@ -163,8 +211,9 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichSetsOriginAndDestination() throws Exception {
-        // metadata at t=0 (acquire, cache), route at t=RL (acquire, cache)
-        when(clock.millis()).thenReturn(0L, 0L, RL, RL);
+        // Independent limiters: both metadata and route fetch at t=0 in a single enrich() call.
+        // Reads: acquireMetadata(0), cacheMetadata(0), acquireRoute(0), cacheRoute(0)
+        when(clock.millis()).thenReturn(0L, 0L, 0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
         when(client.fetchRoute("UAL123"))
                 .thenReturn(Optional.of(
@@ -177,8 +226,7 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichEmptyRouteReturnsOriginal() throws Exception {
-        // route fetch succeeds but returns empty → nothing enriched
-        when(clock.millis()).thenReturn(0L, 0L, RL, RL);
+        when(clock.millis()).thenReturn(0L, 0L, 0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
         when(client.fetchRoute("UAL123")).thenReturn(Optional.empty());
 
@@ -206,7 +254,7 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichMetadataClientExceptionDoesNotPropagate() throws Exception {
-        // acquireRateLimit passes (t=0), then client throws
+        // acquireMetadataRateLimit passes (t=0), then client throws
         when(clock.millis()).thenReturn(0L);
         when(client.fetchMetadata("abc123")).thenThrow(new RuntimeException("network error"));
 
@@ -216,8 +264,8 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichRouteClientExceptionDoesNotPropagate() throws Exception {
-        // metadata at t=0, route acquire at t=RL, client throws before cache
-        when(clock.millis()).thenReturn(0L, 0L, RL);
+        // metadata: acquireMetadata(0), cache(0); route: acquireRoute(0), client throws before cache
+        when(clock.millis()).thenReturn(0L, 0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
         when(client.fetchRoute("UAL123")).thenThrow(new RuntimeException("route error"));
 
@@ -227,9 +275,9 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichFetchMetadataRateLimitedReturnsOriginal() throws Exception {
-        // Consume rate limit manually at t=0 (lastCallMs = 0)
+        // Consume metadata rate limit manually at t=0
         when(clock.millis()).thenReturn(0L);
-        service.acquireRateLimit();
+        service.acquireMetadataRateLimit();
 
         // Enrich: cache miss + rate limited → fetchMetadata not called → meta=null → original returned
         when(clock.millis()).thenReturn(0L);
@@ -240,7 +288,12 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichFetchRouteRateLimitedSkipsApiCall() throws Exception {
-        // metadata at t=0 (acquire→lastCallMs=0, cache); route acquire at t=0 → blocked
+        // Consume route rate limit manually at t=0 (independent of metadata limiter)
+        when(clock.millis()).thenReturn(0L);
+        service.acquireRouteRateLimit();
+
+        // Enrich: metadata acquires its independent limiter and fetches; route limiter is blocked.
+        // Reads: acquireMetadata(0), cacheMetadata(0), acquireRoute(0 → blocked)
         when(clock.millis()).thenReturn(0L, 0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
 
@@ -267,16 +320,16 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void enrichUsesRouteCacheOnSecondCall() throws Exception {
-        // Prime both caches
-        when(clock.millis()).thenReturn(0L, 0L, RL, RL);
+        // Prime both caches at t=0 (independent limiters, both acquire at t=0)
+        when(clock.millis()).thenReturn(0L, 0L, 0L, 0L);
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
         when(client.fetchRoute("UAL123"))
                 .thenReturn(Optional.of(
                         new AdsbDataClient.RouteInfo("UAL123", "KDFW", "KLAX")));
         service.enrich(basicAircraft("abc123", "UAL123"));
 
-        // Second enrich: both caches hit (isExpired checks at t=RL+100)
-        when(clock.millis()).thenReturn(RL + 100L, RL + 100L);
+        // Second enrich: both caches hit (isExpired checks at t=100)
+        when(clock.millis()).thenReturn(100L, 100L);
         AdsbAircraft result = service.enrich(basicAircraft("abc123", "UAL123"));
 
         assertThat(result.origin()).isEqualTo("KDFW");
@@ -290,7 +343,7 @@ class AdsbEnrichmentServiceTest {
         when(client.fetchMetadata("abc123")).thenReturn(Optional.empty());
         service.enrich(basicAircraft("abc123", null));
 
-        // Second enrich: cache hit returns empty Optional; meta != null, !isPresent → no fields set
+        // Second enrich: cache hit returns empty Optional; anyEnriched stays false → original returned
         when(clock.millis()).thenReturn(100L);
         AdsbAircraft aircraft = basicAircraft("abc123", null);
         assertThat(service.enrich(aircraft)).isSameAs(aircraft);
@@ -299,11 +352,11 @@ class AdsbEnrichmentServiceTest {
 
     @Test
     void productionConstructorCreatesServiceWithRealClock() {
-        // Exercises lines 67-68: public AdsbEnrichmentService(AdsbDataClient client)
-        // which delegates to this(client, Clock.systemUTC())
+        // Exercises the public constructor: AdsbEnrichmentService(AdsbDataClient)
+        // Both limiters initialise to -RATE_LIMIT_MS; real clock >> 0 → both first calls pass.
         AdsbEnrichmentService svc = new AdsbEnrichmentService(client);
-        // lastCallMs = -RATE_LIMIT_MS; real clock >> 0, so first call always passes
-        assertThat(svc.acquireRateLimit()).isTrue();
+        assertThat(svc.acquireMetadataRateLimit()).isTrue();
+        assertThat(svc.acquireRouteRateLimit()).isTrue();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

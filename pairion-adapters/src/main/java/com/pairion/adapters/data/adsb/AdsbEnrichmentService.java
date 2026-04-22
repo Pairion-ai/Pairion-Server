@@ -20,8 +20,10 @@ import org.springframework.stereotype.Component;
  *   <li><strong>TTL cache</strong> — metadata is cached for {@value #METADATA_TTL_MS} ms and route
  *       info for {@value #ROUTE_TTL_MS} ms. A negative sentinel ({@code Optional.empty()}) is also
  *       cached to avoid re-querying unknown aircraft.
- *   <li><strong>Rate limiter</strong> — at most one enrichment lookup per second (across all
- *       aircraft) to avoid flooding the OpenSky API, which imposes strict anonymous rate limits.
+ *   <li><strong>Rate limiters</strong> — metadata and route lookups each have an independent rate
+ *       limiter capped at {@value #METADATA_RATE_LIMIT_MS} ms and {@value #ROUTE_RATE_LIMIT_MS} ms
+ *       respectively (2 calls/sec each). Separate budgets ensure a burst of metadata fetches cannot
+ *       starve route lookups, which was the failure mode with the previous shared limiter.
  * </ol>
  *
  * <p>This class is thread-safe. All mutable state is accessed through {@link ConcurrentHashMap} and
@@ -38,8 +40,11 @@ public class AdsbEnrichmentService {
     /** Route cache TTL: 30 minutes in milliseconds. */
     static final long ROUTE_TTL_MS = Duration.ofMinutes(30).toMillis();
 
-    /** Minimum gap between any enrichment API call in milliseconds (1 call/sec). */
-    static final long RATE_LIMIT_MS = 1_000L;
+    /** Minimum gap between metadata API calls in milliseconds (2 calls/sec). */
+    static final long METADATA_RATE_LIMIT_MS = 500L;
+
+    /** Minimum gap between route API calls in milliseconds (2 calls/sec). */
+    static final long ROUTE_RATE_LIMIT_MS = 500L;
 
     private final AdsbDataClient client;
     private final Clock clock;
@@ -53,11 +58,16 @@ public class AdsbEnrichmentService {
             routeCache = new ConcurrentHashMap<>();
 
     /**
-     * Epoch-millis timestamp of the last enrichment API call. Initialized to
-     * {@code -RATE_LIMIT_MS} so the first call at any time (including t=0 in tests) is always
-     * permitted — equivalent to "last call happened one full window in the past."
+     * Epoch-millis timestamp of the last metadata API call. Initialized to
+     * {@code -METADATA_RATE_LIMIT_MS} so the first call is always permitted.
      */
-    private final AtomicLong lastCallMs = new AtomicLong(-RATE_LIMIT_MS);
+    private final AtomicLong lastMetadataCallMs = new AtomicLong(-METADATA_RATE_LIMIT_MS);
+
+    /**
+     * Epoch-millis timestamp of the last route API call. Initialized to
+     * {@code -ROUTE_RATE_LIMIT_MS} so the first call is always permitted.
+     */
+    private final AtomicLong lastRouteCallMs = new AtomicLong(-ROUTE_RATE_LIMIT_MS);
 
     /**
      * Constructs the enrichment service with a production clock.
@@ -177,14 +187,14 @@ public class AdsbEnrichmentService {
     }
 
     /**
-     * Fetches aircraft metadata from the API, subject to the rate limit. Caches both positive and
-     * empty results.
+     * Fetches aircraft metadata from the API, subject to the metadata rate limit. Caches both
+     * positive and empty results.
      *
      * @param icao24 the ICAO 24-bit address
      * @return the lookup result, or null if rate-limited
      */
     private Optional<AdsbDataClient.AircraftMetadata> fetchMetadata(String icao24) {
-        if (!acquireRateLimit()) {
+        if (!acquireMetadataRateLimit()) {
             return null;
         }
         try {
@@ -199,14 +209,14 @@ public class AdsbEnrichmentService {
     }
 
     /**
-     * Fetches route information from the API, subject to the rate limit. Caches both positive and
-     * empty results.
+     * Fetches route information from the API, subject to the route rate limit. Caches both positive
+     * and empty results.
      *
      * @param callsign the trimmed call sign
      * @return the lookup result, or null if rate-limited
      */
     private Optional<AdsbDataClient.RouteInfo> fetchRoute(String callsign) {
-        if (!acquireRateLimit()) {
+        if (!acquireRouteRateLimit()) {
             return null;
         }
         try {
@@ -223,19 +233,35 @@ public class AdsbEnrichmentService {
     }
 
     /**
-     * Attempts to acquire the rate limit token. Returns {@code true} if at least {@value
-     * #RATE_LIMIT_MS} ms have elapsed since the last call, updating the last-call timestamp
-     * atomically. Returns {@code false} if the rate limit is active.
+     * Attempts to acquire the metadata rate limit token. Returns {@code true} if at least {@value
+     * #METADATA_RATE_LIMIT_MS} ms have elapsed since the last metadata call, updating the
+     * timestamp atomically. Returns {@code false} if the rate limit is active.
      *
-     * @return true if the caller may proceed with an API call
+     * @return true if the caller may proceed with a metadata API call
      */
-    boolean acquireRateLimit() {
+    boolean acquireMetadataRateLimit() {
         long now = clock.millis();
-        long last = lastCallMs.get();
-        if (now - last < RATE_LIMIT_MS) {
+        long last = lastMetadataCallMs.get();
+        if (now - last < METADATA_RATE_LIMIT_MS) {
             return false;
         }
-        return lastCallMs.compareAndSet(last, now);
+        return lastMetadataCallMs.compareAndSet(last, now);
+    }
+
+    /**
+     * Attempts to acquire the route rate limit token. Returns {@code true} if at least {@value
+     * #ROUTE_RATE_LIMIT_MS} ms have elapsed since the last route call, updating the timestamp
+     * atomically. Returns {@code false} if the rate limit is active.
+     *
+     * @return true if the caller may proceed with a route API call
+     */
+    boolean acquireRouteRateLimit() {
+        long now = clock.millis();
+        long last = lastRouteCallMs.get();
+        if (now - last < ROUTE_RATE_LIMIT_MS) {
+            return false;
+        }
+        return lastRouteCallMs.compareAndSet(last, now);
     }
 
     /**
