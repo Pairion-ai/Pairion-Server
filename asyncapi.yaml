@@ -33,6 +33,10 @@ channels:
           - $ref: '#/components/messages/UnderBreathAck'
           - $ref: '#/components/messages/MapFocus'
           - $ref: '#/components/messages/MapClear'
+          - $ref: '#/components/messages/ConversationEnded'
+          - $ref: '#/components/messages/SceneChange'
+          - $ref: '#/components/messages/SceneDataPush'
+          - $ref: '#/components/messages/SceneClear'
     publish:
       summary: Messages Client sends to Server
       message:
@@ -329,3 +333,50 @@ components:
           type:
             type: string
             const: MapClear
+    ConversationEnded:
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type:
+            type: string
+            const: ConversationEnded
+    SceneChange:
+      payload:
+        type: object
+        required: [type, sceneId]
+        properties:
+          type:
+            type: string
+            const: SceneChange
+          sceneId:
+            type: string
+            description: Identifier of the scene to activate (e.g. globe, space, dashboard)
+          params:
+            type: object
+            description: Optional scene-specific parameters from the LLM tool call
+          transition:
+            type: string
+            enum: [crossfade, slide, instant]
+            description: Transition animation; defaults to crossfade when absent
+    SceneDataPush:
+      payload:
+        type: object
+        required: [type, modelId, data]
+        properties:
+          type:
+            type: string
+            const: SceneDataPush
+          modelId:
+            type: string
+            description: Data model identifier (e.g. adsb, stock_quotes)
+          data:
+            description: Data payload conforming to the named data model schema
+    SceneClear:
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type:
+            type: string
+            const: SceneClear

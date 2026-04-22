@@ -328,6 +328,35 @@ class PairionWebSocketHandlerTest {
     }
 
     @Test
+    void sendAgentEventSceneChangeSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.SceneChangeEvent(
+                        "globe", java.util.Map.of("zoom", "country"), "crossfade"));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        String payload = captor.getValue().getPayload();
+        assertThat(payload).contains("SceneChange");
+        assertThat(payload).contains("globe");
+        assertThat(payload).contains("crossfade");
+    }
+
+    @Test
+    void sendAgentEventSceneChangeNullParamsSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.SceneChangeEvent(
+                        "dashboard", null, "instant"));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        String payload = captor.getValue().getPayload();
+        assertThat(payload).contains("SceneChange");
+        assertThat(payload).contains("dashboard");
+    }
+
+    @Test
     void afterConnectionClosedWithNoRegisteredSessionDoesNotThrow() {
         // Close a session that was never registered (removed == null branch)
         handler.afterConnectionClosed(session, CloseStatus.NORMAL);

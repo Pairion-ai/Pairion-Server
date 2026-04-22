@@ -18,6 +18,7 @@ import com.pairion.core.ws.LlmTokenStream;
 import com.pairion.core.ws.ConversationEnded;
 import com.pairion.core.ws.MapClear;
 import com.pairion.core.ws.MapFocus;
+import com.pairion.core.ws.SceneChange;
 import com.pairion.core.ws.SessionOpened;
 import com.pairion.core.ws.SpeechEnded;
 import com.pairion.core.ws.ToolCallCompleted;
@@ -316,6 +317,13 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             case AgentSessionEvent.ConversationEndedEvent ignored ->
                     objectMapper.writeValueAsString(
                             new ConversationEnded(ConversationEnded.TYPE));
+            case AgentSessionEvent.SceneChangeEvent sc ->
+                    objectMapper.writeValueAsString(
+                            new SceneChange(
+                                    SceneChange.TYPE,
+                                    sc.sceneId(),
+                                    sc.params(),
+                                    sc.transition()));
         };
     }
 }

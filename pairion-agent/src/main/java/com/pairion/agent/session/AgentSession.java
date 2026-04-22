@@ -7,6 +7,7 @@ import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.agent.tools.ToolDispatcher;
 import com.pairion.agent.tools.map.MapFocusTool;
+import com.pairion.agent.tools.scene.SetSceneTool;
 import com.pairion.agent.util.MarkdownStripper;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
@@ -285,6 +286,22 @@ public class AgentSession {
     }
 
     /**
+     * Emits a {@link AgentSessionEvent.SceneChangeEvent} derived from a successful {@code set_scene}
+     * tool result and forwards it to the client.
+     *
+     * @param result the tool result map containing {@code scene_id}, {@code transition}, and
+     *               optionally {@code params}
+     */
+    private void emitSceneChange(Map<String, Object> result) {
+        String sceneId = (String) result.get("scene_id");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> params = (Map<String, Object>) result.get("params");
+        String transition = (String) result.getOrDefault("transition", "crossfade");
+        eventSink.accept(new AgentSessionEvent.SceneChangeEvent(sceneId, params, transition));
+        log.info("scene.change.emitted: sceneId={}, transition={}", sceneId, transition);
+    }
+
+    /**
      * Handles an STT event by forwarding it and triggering the LLM phase on final transcript.
      *
      * @param event the STT event
@@ -387,6 +404,9 @@ public class AgentSession {
                         && result.containsKey("latitude")
                         && result.containsKey("longitude")) {
                     emitMapFocusFromWeather(result);
+                } else if (SetSceneTool.TOOL_NAME.equals(tc.toolName())
+                        && !result.containsKey("error")) {
+                    emitSceneChange(result);
                 }
                 eventSink.accept(
                         new AgentSessionEvent.ToolCallCompletedEvent(
@@ -645,7 +665,40 @@ public class AgentSession {
                                                         "Zoom level: continent, country,"
                                                                 + " region (state/province),"
                                                                 + " or city")),
-                                "required", List.of("location"))));
+                                "required", List.of("location"))),
+                new ToolDefinition(
+                        "set_scene",
+                        "Switch the background scene to match the current conversation topic."
+                                + " Call this immediately, with NO text output beforehand, when"
+                                + " the conversation shifts to a topic that maps to a built-in"
+                                + " scene: 'globe' for geography, weather, or location topics;"
+                                + " 'space' for astronomy or space topics. Call with"
+                                + " scene_id='dashboard' when returning to general topics.",
+                        Map.of(
+                                "type", "object",
+                                "properties",
+                                        Map.of(
+                                                "scene_id",
+                                                Map.of(
+                                                        "type", "string",
+                                                        "description",
+                                                        "Scene identifier: 'globe', 'space',"
+                                                                + " or 'dashboard'"),
+                                                "params",
+                                                Map.of(
+                                                        "type", "object",
+                                                        "description",
+                                                        "Optional scene-specific parameters"),
+                                                "transition",
+                                                Map.of(
+                                                        "type", "string",
+                                                        "enum",
+                                                        List.of("crossfade", "slide",
+                                                                "instant"),
+                                                        "description",
+                                                        "Transition animation, default:"
+                                                                + " crossfade")),
+                                "required", List.of("scene_id"))));
     }
 
     private void transitionState(AgentState newState) {

@@ -19,7 +19,8 @@ public sealed interface AgentSessionEvent
                 AgentSessionEvent.AudioStreamEndEvent,
                 AgentSessionEvent.MapFocusEvent,
                 AgentSessionEvent.MapClearEvent,
-                AgentSessionEvent.ConversationEndedEvent {
+                AgentSessionEvent.ConversationEndedEvent,
+                AgentSessionEvent.SceneChangeEvent {
 
     /**
      * Agent state transition event.
@@ -120,4 +121,19 @@ public sealed interface AgentSessionEvent
      * <p>Emitted when the user utters a dismissal phrase such as "that's all" or "goodbye".
      */
     record ConversationEndedEvent() implements AgentSessionEvent {}
+
+    /**
+     * Commands the client to switch the active background scene.
+     *
+     * <p>Emitted when the LLM calls the {@code set_scene} tool. The client {@code SceneManager}
+     * dynamically loads the target scene and starts the transition animation.
+     *
+     * @param sceneId the identifier of the scene to activate (e.g. {@code "globe"},
+     *     {@code "space"}, {@code "dashboard"})
+     * @param params optional scene-specific parameters from the LLM tool call
+     * @param transition transition animation: {@code "crossfade"}, {@code "slide"}, or
+     *     {@code "instant"}
+     */
+    record SceneChangeEvent(String sceneId, Map<String, Object> params, String transition)
+            implements AgentSessionEvent {}
 }

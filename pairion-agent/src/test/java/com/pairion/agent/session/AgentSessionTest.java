@@ -14,6 +14,7 @@ import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.agent.tools.ToolDispatcher;
 import com.pairion.agent.tools.map.MapFocusTool;
+import com.pairion.agent.tools.scene.SetSceneTool;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
 import com.pairion.core.stt.SttEvent;
@@ -736,6 +737,98 @@ class AgentSessionTest {
         assertThat(focus.zoom()).isEqualTo("city");
 
         session.close();
+    }
+
+    /** set_scene tool success emits a SceneChangeEvent with the correct scene ID and transition. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void setSceneToolSuccessEmitsSceneChangeEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-scene", SetSceneTool.TOOL_NAME,
+                                Map.of("scene_id", "globe", "transition", "crossfade")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Switching to the globe scene."));
+                        consumer.accept(new LlmEvent.Stop(5));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                SetSceneTool.TOOL_NAME,
+                Map.of("scene_id", "globe", "transition", "crossfade")))
+                .thenReturn(Map.of("status", "scene_changed",
+                        "scene_id", "globe", "transition", "crossfade"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show me the globe.", 800));
+
+        boolean hasSceneChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent);
+        assertThat(hasSceneChange).isTrue();
+
+        AgentSessionEvent.SceneChangeEvent sc = (AgentSessionEvent.SceneChangeEvent) events.stream()
+                .filter(e -> e instanceof AgentSessionEvent.SceneChangeEvent)
+                .findFirst().orElseThrow();
+        assertThat(sc.sceneId()).isEqualTo("globe");
+        assertThat(sc.transition()).isEqualTo("crossfade");
+    }
+
+    /** set_scene tool error does NOT emit a SceneChangeEvent (covers the false branch of !result.containsKey("error")). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void setSceneToolErrorDoesNotEmitSceneChangeEvent() {
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-scene-err", SetSceneTool.TOOL_NAME,
+                                Map.of("scene_id", "unknown-scene")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Scene not found."));
+                        consumer.accept(new LlmEvent.Stop(3));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(
+                SetSceneTool.TOOL_NAME,
+                Map.of("scene_id", "unknown-scene")))
+                .thenReturn(Map.of("error", "unknown_scene",
+                        "message", "Scene not registered"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Load the unknown scene.", 600));
+
+        boolean hasSceneChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent);
+        assertThat(hasSceneChange).isFalse();
     }
 
     /**

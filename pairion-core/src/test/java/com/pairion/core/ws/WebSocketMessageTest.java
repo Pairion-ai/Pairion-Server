@@ -278,4 +278,56 @@ class WebSocketMessageTest {
         assertThat(((ConversationEnded) deserialized).type()).isEqualTo("ConversationEnded");
         assertThat(ConversationEnded.TYPE).isEqualTo("ConversationEnded");
     }
+
+    @Test
+    void sceneChangeRoundTrip() throws Exception {
+        SceneChange msg = new SceneChange("SceneChange", "globe", Map.of("lat", 35.6), "crossfade");
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(SceneChange.class);
+        SceneChange result = (SceneChange) deserialized;
+        assertThat(result.type()).isEqualTo("SceneChange");
+        assertThat(result.sceneId()).isEqualTo("globe");
+        assertThat(result.params()).containsKey("lat");
+        assertThat(result.transition()).isEqualTo("crossfade");
+        assertThat(SceneChange.TYPE).isEqualTo("SceneChange");
+    }
+
+    @Test
+    void sceneChangeNullParamsAndTransitionOmitted() throws Exception {
+        SceneChange msg = new SceneChange("SceneChange", "dashboard", null, null);
+        String json = mapper.writeValueAsString(msg);
+        assertThat(json).doesNotContain("\"params\"");
+        assertThat(json).doesNotContain("\"transition\"");
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(SceneChange.class);
+        SceneChange result = (SceneChange) deserialized;
+        assertThat(result.sceneId()).isEqualTo("dashboard");
+        assertThat(result.params()).isNull();
+        assertThat(result.transition()).isNull();
+    }
+
+    @Test
+    void sceneDataPushRoundTrip() throws Exception {
+        SceneDataPush msg = new SceneDataPush("SceneDataPush", "adsb",
+                Map.of("icao", "A12345", "callsign", "DAL1234"));
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(SceneDataPush.class);
+        SceneDataPush result = (SceneDataPush) deserialized;
+        assertThat(result.type()).isEqualTo("SceneDataPush");
+        assertThat(result.modelId()).isEqualTo("adsb");
+        assertThat(result.data()).isNotNull();
+        assertThat(SceneDataPush.TYPE).isEqualTo("SceneDataPush");
+    }
+
+    @Test
+    void sceneClearRoundTrip() throws Exception {
+        SceneClear msg = new SceneClear("SceneClear");
+        String json = mapper.writeValueAsString(msg);
+        WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
+        assertThat(deserialized).isInstanceOf(SceneClear.class);
+        assertThat(((SceneClear) deserialized).type()).isEqualTo("SceneClear");
+        assertThat(SceneClear.TYPE).isEqualTo("SceneClear");
+    }
 }

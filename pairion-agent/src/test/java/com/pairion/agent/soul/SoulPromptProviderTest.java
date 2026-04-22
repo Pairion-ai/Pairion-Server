@@ -55,4 +55,26 @@ class SoulPromptProviderTest {
         String prompt = provider.getSystemPrompt("session-1").toLowerCase();
         assertThat(prompt).contains("text-to-speech");
     }
+
+    @Test
+    void promptInstructsSetSceneForGlobe() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        assertThat(prompt).contains("set_scene");
+        assertThat(prompt).contains("globe");
+    }
+
+    @Test
+    void promptInstructsSetSceneForSpace() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        assertThat(prompt).contains("space");
+    }
+
+    @Test
+    void promptInstructsSetSceneForDashboard() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        assertThat(prompt).contains("dashboard");
+    }
 }

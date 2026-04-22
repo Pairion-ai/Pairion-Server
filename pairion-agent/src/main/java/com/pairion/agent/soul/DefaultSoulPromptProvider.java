@@ -32,7 +32,15 @@ public class DefaultSoulPromptProvider implements SoulPromptProvider {
                 + "- You MUST call focus_map whenever the user mentions or asks about any specific"
                 + " geographic location — city, country, region, or landmark. Call it immediately"
                 + " with NO text output beforehand. If the user also asks a weather question about"
-                + " that location, call focus_map first, then get_current_weather.";
+                + " that location, call focus_map first, then get_current_weather.\n"
+                + "- You have a set_scene tool to switch the background scene. Use it immediately"
+                + " with NO text output beforehand when the conversation topic shifts:\n"
+                + "  - Geography, weather, maps, or location questions → set_scene with"
+                + " scene_id='globe'\n"
+                + "  - Astronomy, space, stars, planets, or cosmos → set_scene with"
+                + " scene_id='space'\n"
+                + "  - When returning to general topics → set_scene with scene_id='dashboard'\n"
+                + "  - Do not call set_scene again if the scene is already correct for the topic.";
 
     /**
      * Returns the placeholder system prompt.
