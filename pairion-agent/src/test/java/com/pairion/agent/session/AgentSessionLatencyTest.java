@@ -64,6 +64,7 @@ class AgentSessionLatencyTest {
                         ttsAdapter,
                         soulProvider,
                         toolDispatcher,
+                        null,
                         event -> {});
 
         // Attach Logback ListAppender to capture AgentSession log output

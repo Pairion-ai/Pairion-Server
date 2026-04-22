@@ -35,6 +35,15 @@ pairion:
         voice: en_GB-alan-medium
         length-scale: 0.85
 
+  data:
+    adsb:
+      # Geographic bounding box for ADS-B state queries (continental US defaults)
+      lamin: 24.0      # southern boundary (latitude min, decimal degrees)
+      lomin: -125.0    # western boundary (longitude min, decimal degrees)
+      lamax: 49.0      # northern boundary (latitude max, decimal degrees)
+      lomax: -66.0     # eastern boundary (longitude max, decimal degrees)
+      poll-interval-seconds: 10
+
 logging:
   level:
     root: INFO

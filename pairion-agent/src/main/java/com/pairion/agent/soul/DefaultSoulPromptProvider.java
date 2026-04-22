@@ -40,7 +40,11 @@ public class DefaultSoulPromptProvider implements SoulPromptProvider {
                 + "  - Astronomy, space, stars, planets, or cosmos → set_scene with"
                 + " scene_id='space'\n"
                 + "  - When returning to general topics → set_scene with scene_id='dashboard'\n"
-                + "  - Do not call set_scene again if the scene is already correct for the topic.";
+                + "  - Do not call set_scene again if the scene is already correct for the topic.\n"
+                + "- You have a show_adsb_radar tool. Call it immediately with NO text output"
+                + " beforehand when the user asks about live aircraft, planes in the sky, flight"
+                + " traffic, or air traffic radar. This activates the adsb-radar scene with"
+                + " real-time aircraft positions.";
 
     /**
      * Returns the placeholder system prompt.

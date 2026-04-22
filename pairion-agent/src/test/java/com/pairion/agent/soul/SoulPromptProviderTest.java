@@ -77,4 +77,12 @@ class SoulPromptProviderTest {
         String prompt = provider.getSystemPrompt("session-1");
         assertThat(prompt).contains("dashboard");
     }
+
+    @Test
+    void promptInstructsShowAdsbRadarTool() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        assertThat(prompt).contains("show_adsb_radar");
+        assertThat(prompt).contains("adsb-radar");
+    }
 }

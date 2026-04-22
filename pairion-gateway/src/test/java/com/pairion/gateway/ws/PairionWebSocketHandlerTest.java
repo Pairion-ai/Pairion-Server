@@ -54,7 +54,7 @@ class PairionWebSocketHandlerTest {
         handler =
                 new PairionWebSocketHandler(
                         objectMapper, sttAdapter, llmAdapter, ttsAdapter, soulProvider,
-                        toolDispatcher);
+                        toolDispatcher, null);
         session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("test-session-1");
     }
@@ -360,5 +360,19 @@ class PairionWebSocketHandlerTest {
     void afterConnectionClosedWithNoRegisteredSessionDoesNotThrow() {
         // Close a session that was never registered (removed == null branch)
         handler.afterConnectionClosed(session, CloseStatus.NORMAL);
+    }
+
+    @Test
+    void sendAgentEventSceneDataPushSendsJson() throws Exception {
+        handler.sendAgentEvent(
+                session,
+                new com.pairion.agent.session.AgentSessionEvent.SceneDataPushEvent(
+                        "adsb", java.util.List.of()));
+
+        ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
+        verify(session).sendMessage(captor.capture());
+        String payload = captor.getValue().getPayload();
+        assertThat(payload).contains("SceneDataPush");
+        assertThat(payload).contains("adsb");
     }
 }

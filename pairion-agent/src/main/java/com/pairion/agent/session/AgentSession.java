@@ -1,6 +1,7 @@
 package com.pairion.agent.session;
 
 import com.pairion.adapters.audio.opus.OpusDecoder;
+import com.pairion.adapters.data.adsb.AdsbDataAdapter;
 import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
@@ -8,6 +9,7 @@ import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.agent.tools.ToolDispatcher;
 import com.pairion.agent.tools.map.MapFocusTool;
 import com.pairion.agent.tools.scene.SetSceneTool;
+import com.pairion.agent.tools.scene.ShowAdsbRadarTool;
 import com.pairion.agent.util.MarkdownStripper;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
@@ -69,6 +71,7 @@ public class AgentSession {
     private final TtsAdapter ttsAdapter;
     private final SoulPromptProvider soulProvider;
     private final ToolDispatcher toolDispatcher;
+    private final AdsbDataAdapter adsbDataAdapter;
     private final Consumer<AgentSessionEvent> eventSink;
 
     private OpusDecoder opusDecoder;
@@ -114,6 +117,7 @@ public class AgentSession {
      * @param ttsAdapter the text-to-speech adapter (may be null if TTS unavailable)
      * @param soulProvider the SOUL prompt provider
      * @param toolDispatcher the tool dispatcher for LLM tool calls
+     * @param adsbDataAdapter the ADS-B data adapter for live aircraft radar; null if unavailable
      * @param eventSink consumer receiving agent events to forward to the Client
      */
     public AgentSession(
@@ -123,6 +127,7 @@ public class AgentSession {
             TtsAdapter ttsAdapter,
             SoulPromptProvider soulProvider,
             ToolDispatcher toolDispatcher,
+            AdsbDataAdapter adsbDataAdapter,
             Consumer<AgentSessionEvent> eventSink) {
         this.sessionId = sessionId;
         this.sttAdapter = sttAdapter;
@@ -130,6 +135,7 @@ public class AgentSession {
         this.ttsAdapter = ttsAdapter;
         this.soulProvider = soulProvider;
         this.toolDispatcher = toolDispatcher;
+        this.adsbDataAdapter = adsbDataAdapter;
         this.eventSink = eventSink;
         this.clearScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "map-clear-" + sessionId);
@@ -198,6 +204,9 @@ public class AgentSession {
     public void close() {
         cancelClear();
         clearScheduler.shutdownNow();
+        if (adsbDataAdapter != null) {
+            adsbDataAdapter.stopPolling();
+        }
     }
 
     /**
@@ -283,6 +292,23 @@ public class AgentSession {
         eventSink.accept(new AgentSessionEvent.MapFocusEvent(lat, lon, label, zoom));
         rescheduleClear();
         log.info("map.focus.emitted: label={}, lat={}, lon={}, zoom={}", label, lat, lon, zoom);
+    }
+
+    /**
+     * Activates the ADS-B radar scene by emitting a {@link AgentSessionEvent.SceneChangeEvent}
+     * and, if an {@link AdsbDataAdapter} is configured, starts the polling loop. Each poll
+     * delivers a {@link AgentSessionEvent.SceneDataPushEvent} with model ID {@code "adsb"}.
+     */
+    private void emitAdsbRadar() {
+        eventSink.accept(
+                new AgentSessionEvent.SceneChangeEvent("adsb-radar", null, "crossfade"));
+        log.info("scene.adsb-radar.activated");
+        if (adsbDataAdapter != null) {
+            adsbDataAdapter.startPolling(
+                    aircraft ->
+                            eventSink.accept(
+                                    new AgentSessionEvent.SceneDataPushEvent("adsb", aircraft)));
+        }
     }
 
     /**
@@ -407,6 +433,9 @@ public class AgentSession {
                 } else if (SetSceneTool.TOOL_NAME.equals(tc.toolName())
                         && !result.containsKey("error")) {
                     emitSceneChange(result);
+                } else if (ShowAdsbRadarTool.TOOL_NAME.equals(tc.toolName())
+                        && !result.containsKey("error")) {
+                    emitAdsbRadar();
                 }
                 eventSink.accept(
                         new AgentSessionEvent.ToolCallCompletedEvent(
@@ -698,7 +727,16 @@ public class AgentSession {
                                                         "description",
                                                         "Transition animation, default:"
                                                                 + " crossfade")),
-                                "required", List.of("scene_id"))));
+                                "required", List.of("scene_id"))),
+                new ToolDefinition(
+                        "show_adsb_radar",
+                        "Display a live ADS-B radar showing real-time aircraft positions on the"
+                                + " radar scene. Call this when the user asks to see live aircraft,"
+                                + " flight traffic, planes in the sky, or air traffic radar.",
+                        Map.of(
+                                "type", "object",
+                                "properties", Map.of(),
+                                "required", List.of())));
     }
 
     private void transitionState(AgentState newState) {

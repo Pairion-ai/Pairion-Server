@@ -1,6 +1,7 @@
 package com.pairion.gateway.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pairion.adapters.data.adsb.AdsbDataAdapter;
 import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
@@ -19,6 +20,7 @@ import com.pairion.core.ws.ConversationEnded;
 import com.pairion.core.ws.MapClear;
 import com.pairion.core.ws.MapFocus;
 import com.pairion.core.ws.SceneChange;
+import com.pairion.core.ws.SceneDataPush;
 import com.pairion.core.ws.SessionOpened;
 import com.pairion.core.ws.SpeechEnded;
 import com.pairion.core.ws.ToolCallCompleted;
@@ -65,6 +67,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
     private final TtsAdapter ttsAdapter;
     private final SoulPromptProvider soulProvider;
     private final ToolDispatcher toolDispatcher;
+    private final AdsbDataAdapter adsbDataAdapter;
     private final Map<String, AgentSession> sessions = new ConcurrentHashMap<>();
 
     /**
@@ -76,6 +79,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
      * @param ttsAdapter the text-to-speech adapter (nullable — TTS may be unavailable)
      * @param soulProvider the SOUL prompt provider
      * @param toolDispatcher the tool dispatcher for LLM tool calls
+     * @param adsbDataAdapter the ADS-B data adapter for live aircraft radar; null if unavailable
      */
     public PairionWebSocketHandler(
             ObjectMapper objectMapper,
@@ -83,13 +87,15 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             LlmAdapter llmAdapter,
             @Nullable TtsAdapter ttsAdapter,
             SoulPromptProvider soulProvider,
-            ToolDispatcher toolDispatcher) {
+            ToolDispatcher toolDispatcher,
+            @Nullable AdsbDataAdapter adsbDataAdapter) {
         this.objectMapper = objectMapper;
         this.sttAdapter = sttAdapter;
         this.llmAdapter = llmAdapter;
         this.ttsAdapter = ttsAdapter;
         this.soulProvider = soulProvider;
         this.toolDispatcher = toolDispatcher;
+        this.adsbDataAdapter = adsbDataAdapter;
     }
 
     /**
@@ -192,6 +198,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                         ttsAdapter,
                         soulProvider,
                         toolDispatcher,
+                        adsbDataAdapter,
                         event -> sendAgentEvent(session, event));
         sessions.put(session.getId(), agentSession);
 
@@ -324,6 +331,9 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                                     sc.sceneId(),
                                     sc.params(),
                                     sc.transition()));
+            case AgentSessionEvent.SceneDataPushEvent sdp ->
+                    objectMapper.writeValueAsString(
+                            new SceneDataPush(SceneDataPush.TYPE, sdp.modelId(), sdp.data()));
         };
     }
 }

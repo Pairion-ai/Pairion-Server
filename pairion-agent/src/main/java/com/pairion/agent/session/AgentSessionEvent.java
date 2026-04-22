@@ -20,7 +20,8 @@ public sealed interface AgentSessionEvent
                 AgentSessionEvent.MapFocusEvent,
                 AgentSessionEvent.MapClearEvent,
                 AgentSessionEvent.ConversationEndedEvent,
-                AgentSessionEvent.SceneChangeEvent {
+                AgentSessionEvent.SceneChangeEvent,
+                AgentSessionEvent.SceneDataPushEvent {
 
     /**
      * Agent state transition event.
@@ -136,4 +137,15 @@ public sealed interface AgentSessionEvent
      */
     record SceneChangeEvent(String sceneId, Map<String, Object> params, String transition)
             implements AgentSessionEvent {}
+
+    /**
+     * Carries a data model payload for the active scene.
+     *
+     * <p>Emitted by the server whenever a data adapter (e.g. ADS-B) produces a new snapshot. The
+     * client {@code SceneManager} routes this to the active scene's {@code sceneData} property.
+     *
+     * @param modelId the data model identifier (e.g. {@code "adsb"})
+     * @param data the data payload; structure is defined by the named data model's schema
+     */
+    record SceneDataPushEvent(String modelId, Object data) implements AgentSessionEvent {}
 }

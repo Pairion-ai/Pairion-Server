@@ -12,9 +12,12 @@ import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
+import com.pairion.adapters.data.adsb.AdsbDataAdapter;
+import com.pairion.adapters.data.adsb.AdsbAircraft;
 import com.pairion.agent.tools.ToolDispatcher;
 import com.pairion.agent.tools.map.MapFocusTool;
 import com.pairion.agent.tools.scene.SetSceneTool;
+import com.pairion.agent.tools.scene.ShowAdsbRadarTool;
 import com.pairion.core.agent.AgentState;
 import com.pairion.core.llm.LlmEvent;
 import com.pairion.core.stt.SttEvent;
@@ -56,6 +59,7 @@ class AgentSessionTest {
                         ttsAdapter,
                         soulProvider,
                         toolDispatcher,
+                        null,
                         events::add);
     }
 
@@ -829,6 +833,233 @@ class AgentSessionTest {
         boolean hasSceneChange = events.stream()
                 .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent);
         assertThat(hasSceneChange).isFalse();
+    }
+
+    /** show_adsb_radar tool success emits SceneChangeEvent("adsb-radar") and starts adapter. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void showAdsbRadarToolSuccessEmitsSceneChangeAndStartsAdapter() {
+        AdsbDataAdapter adsbAdapter = mock(AdsbDataAdapter.class);
+        AgentSession sessionWithAdsb =
+                new AgentSession(
+                        "test-adsb",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        adsbAdapter,
+                        events::add);
+        when(soulProvider.getSystemPrompt("test-adsb")).thenReturn("You are Jarvis.");
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-adsb", ShowAdsbRadarTool.TOOL_NAME, Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar is now active."));
+                        consumer.accept(new LlmEvent.Stop(4));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(ShowAdsbRadarTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("status", "adsb_radar_activated", "scene_id", "adsb-radar"));
+
+        sessionWithAdsb.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show me the radar.", 500));
+
+        boolean hasSceneChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent sc
+                        && "adsb-radar".equals(sc.sceneId()));
+        assertThat(hasSceneChange).isTrue();
+
+        org.mockito.Mockito.verify(adsbAdapter).startPolling(any());
+        sessionWithAdsb.close();
+        org.mockito.Mockito.verify(adsbAdapter).stopPolling();
+    }
+
+    /** show_adsb_radar tool error does NOT emit SceneChangeEvent and does NOT start adapter. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void showAdsbRadarToolErrorDoesNotEmitSceneChange() {
+        AdsbDataAdapter adsbAdapter = mock(AdsbDataAdapter.class);
+        AgentSession sessionWithAdsb =
+                new AgentSession(
+                        "test-adsb-err",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        adsbAdapter,
+                        events::add);
+        when(soulProvider.getSystemPrompt("test-adsb-err")).thenReturn("You are Jarvis.");
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-adsb-err", ShowAdsbRadarTool.TOOL_NAME, Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar unavailable."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(ShowAdsbRadarTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("error", "unavailable", "message", "ADS-B not configured"));
+
+        sessionWithAdsb.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show me the radar.", 500));
+
+        boolean hasSceneChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent sc
+                        && "adsb-radar".equals(sc.sceneId()));
+        assertThat(hasSceneChange).isFalse();
+        org.mockito.Mockito.verify(adsbAdapter, never()).startPolling(any());
+        sessionWithAdsb.close();
+    }
+
+    /** SceneDataPushEvent is emitted when ADSB adapter delivers aircraft list. */
+    @Test
+    void adsbAdapterSinkEmitsSceneDataPushEvent() {
+        AdsbDataAdapter adsbAdapter = mock(AdsbDataAdapter.class);
+        AgentSession sessionWithAdsb =
+                new AgentSession(
+                        "test-push",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        adsbAdapter,
+                        events::add);
+
+        // Capture the sink registered with the adapter
+        java.util.concurrent.atomic.AtomicReference<java.util.function.Consumer<java.util.List<AdsbAircraft>>> capturedSink =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+                    capturedSink.set(inv.getArgument(0));
+                    return null;
+                })
+                .when(adsbAdapter)
+                .startPolling(any());
+
+        // Manually trigger emitAdsbRadar by dispatching through the tool call path
+        // Use a tool call that triggers the adsb path
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+        when(soulProvider.getSystemPrompt("test-push")).thenReturn("You are Jarvis.");
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-push", ShowAdsbRadarTool.TOOL_NAME, Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Done."));
+                        consumer.accept(new LlmEvent.Stop(1));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(ShowAdsbRadarTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("status", "adsb_radar_activated", "scene_id", "adsb-radar"));
+
+        sessionWithAdsb.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show radar.", 500));
+
+        assertThat(capturedSink.get()).isNotNull();
+
+        // Simulate the adapter delivering aircraft data
+        AdsbAircraft plane = new AdsbAircraft(
+                "abc123", "UAL1", 35.0, -97.0, 10000.0, 480.0, 90.0, 0.0, false,
+                "N123AB", "B738", "KDFW", "KLAX");
+        capturedSink.get().accept(java.util.List.of(plane));
+
+        boolean hasPush = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.SceneDataPushEvent sdp
+                        && "adsb".equals(sdp.modelId()));
+        assertThat(hasPush).isTrue();
+        sessionWithAdsb.close();
+    }
+
+    /** show_adsb_radar with null adsbDataAdapter still emits SceneChangeEvent (covers null branch). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void showAdsbRadarWithNullAdapterEmitsSceneChangeOnly() {
+        // Default session has null adsbDataAdapter
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-null-adsb", ShowAdsbRadarTool.TOOL_NAME, Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar active."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(ShowAdsbRadarTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("status", "adsb_radar_activated", "scene_id", "adsb-radar"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show radar please.", 500));
+
+        // SceneChangeEvent still emitted even when adsbDataAdapter is null
+        boolean hasSceneChange = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.SceneChangeEvent sc
+                        && "adsb-radar".equals(sc.sceneId()));
+        assertThat(hasSceneChange).isTrue();
     }
 
     /**

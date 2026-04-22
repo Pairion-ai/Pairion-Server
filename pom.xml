@@ -229,6 +229,10 @@
                                      a checked exception that Concentus never throws for valid PCM.
                                      Happy path, getSampleRate, and reset are tested directly. -->
                                 <exclude>com/pairion/adapters/audio/opus/ConcentusOpusEncoder.class</exclude>
+                                <!-- HttpAdsbDataClient: makes real HTTP calls to opensky-network.org.
+                                     Unit-tested via AdsbDataClient mock boundary. -->
+                                <exclude>com/pairion/adapters/data/adsb/HttpAdsbDataClient.class</exclude>
+                                <exclude>com/pairion/adapters/data/adsb/HttpAdsbDataClient$*.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
