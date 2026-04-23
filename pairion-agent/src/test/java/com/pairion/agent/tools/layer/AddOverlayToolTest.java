@@ -51,4 +51,11 @@ class AddOverlayToolTest {
         Map<String, Object> result = tool.execute(Map.of("overlay_id", "adsb"));
         assertThat(result).doesNotContainKey("params");
     }
+
+    @Test
+    void weatherRadarOverlayIdReturnsSuccess() {
+        Map<String, Object> result = tool.execute(Map.of("overlay_id", "weather_radar"));
+        assertThat(result).containsEntry("status", "overlay_added");
+        assertThat(result).containsEntry("overlay_id", "weather_radar");
+    }
 }

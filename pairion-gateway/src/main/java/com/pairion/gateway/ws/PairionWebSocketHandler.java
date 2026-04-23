@@ -2,6 +2,7 @@ package com.pairion.gateway.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pairion.adapters.data.adsb.AdsbDataAdapter;
+import com.pairion.adapters.data.weatherradar.WeatherRadarDataAdapter;
 import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
@@ -71,6 +72,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
     private final SoulPromptProvider soulProvider;
     private final ToolDispatcher toolDispatcher;
     private final AdsbDataAdapter adsbDataAdapter;
+    private final WeatherRadarDataAdapter weatherRadarDataAdapter;
     private final Map<String, AgentSession> sessions = new ConcurrentHashMap<>();
 
     /**
@@ -82,7 +84,8 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
      * @param ttsAdapter the text-to-speech adapter (nullable — TTS may be unavailable)
      * @param soulProvider the SOUL prompt provider
      * @param toolDispatcher the tool dispatcher for LLM tool calls
-     * @param adsbDataAdapter the ADS-B data adapter for live aircraft radar; null if unavailable
+     * @param adsbDataAdapter         the ADS-B data adapter for live aircraft radar; null if unavailable
+     * @param weatherRadarDataAdapter the weather radar data adapter for RainViewer tiles; null if unavailable
      */
     public PairionWebSocketHandler(
             ObjectMapper objectMapper,
@@ -91,7 +94,8 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             @Nullable TtsAdapter ttsAdapter,
             SoulPromptProvider soulProvider,
             ToolDispatcher toolDispatcher,
-            @Nullable AdsbDataAdapter adsbDataAdapter) {
+            @Nullable AdsbDataAdapter adsbDataAdapter,
+            @Nullable WeatherRadarDataAdapter weatherRadarDataAdapter) {
         this.objectMapper = objectMapper;
         this.sttAdapter = sttAdapter;
         this.llmAdapter = llmAdapter;
@@ -99,6 +103,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
         this.soulProvider = soulProvider;
         this.toolDispatcher = toolDispatcher;
         this.adsbDataAdapter = adsbDataAdapter;
+        this.weatherRadarDataAdapter = weatherRadarDataAdapter;
     }
 
     /**
@@ -202,16 +207,12 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                         soulProvider,
                         toolDispatcher,
                         adsbDataAdapter,
+                        weatherRadarDataAdapter,
                         event -> sendAgentEvent(session, event));
         sessions.put(session.getId(), agentSession);
 
-        // Auto-activate ADS-B radar on connect during debugging so the scene populates
-        // without requiring a voice command.
-        agentSession.activateAdsbRadar();
-
         SessionOpened response =
                 new SessionOpened(SessionOpened.TYPE, UUID.randomUUID().toString(), SERVER_VERSION);
-
         String json = objectMapper.writeValueAsString(response);
         session.sendMessage(new TextMessage(json));
     }

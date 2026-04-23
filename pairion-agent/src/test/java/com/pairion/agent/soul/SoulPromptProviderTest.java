@@ -99,4 +99,12 @@ class SoulPromptProviderTest {
         String prompt = provider.getSystemPrompt("session-1");
         assertThat(prompt).contains("show_adsb_radar");
     }
+
+    @Test
+    void promptInstructsWeatherRadarOverlay() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        assertThat(prompt).contains("weather_radar");
+        assertThat(prompt).contains("rain");
+    }
 }

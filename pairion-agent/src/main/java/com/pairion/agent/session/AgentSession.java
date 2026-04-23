@@ -2,6 +2,7 @@ package com.pairion.agent.session;
 
 import com.pairion.adapters.audio.opus.OpusDecoder;
 import com.pairion.adapters.data.adsb.AdsbDataAdapter;
+import com.pairion.adapters.data.weatherradar.WeatherRadarDataAdapter;
 import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
 import com.pairion.adapters.tts.spi.TtsAdapter;
@@ -75,6 +76,7 @@ public class AgentSession {
     private final SoulPromptProvider soulProvider;
     private final ToolDispatcher toolDispatcher;
     private final AdsbDataAdapter adsbDataAdapter;
+    private final WeatherRadarDataAdapter weatherRadarDataAdapter;
     private final Consumer<AgentSessionEvent> eventSink;
 
     private OpusDecoder opusDecoder;
@@ -120,7 +122,8 @@ public class AgentSession {
      * @param ttsAdapter the text-to-speech adapter (may be null if TTS unavailable)
      * @param soulProvider the SOUL prompt provider
      * @param toolDispatcher the tool dispatcher for LLM tool calls
-     * @param adsbDataAdapter the ADS-B data adapter for live aircraft radar; null if unavailable
+     * @param adsbDataAdapter         the ADS-B data adapter for live aircraft radar; null if unavailable
+     * @param weatherRadarDataAdapter the weather radar data adapter for RainViewer tiles; null if unavailable
      * @param eventSink consumer receiving agent events to forward to the Client
      */
     public AgentSession(
@@ -131,6 +134,7 @@ public class AgentSession {
             SoulPromptProvider soulProvider,
             ToolDispatcher toolDispatcher,
             AdsbDataAdapter adsbDataAdapter,
+            WeatherRadarDataAdapter weatherRadarDataAdapter,
             Consumer<AgentSessionEvent> eventSink) {
         this.sessionId = sessionId;
         this.sttAdapter = sttAdapter;
@@ -139,6 +143,7 @@ public class AgentSession {
         this.soulProvider = soulProvider;
         this.toolDispatcher = toolDispatcher;
         this.adsbDataAdapter = adsbDataAdapter;
+        this.weatherRadarDataAdapter = weatherRadarDataAdapter;
         this.eventSink = eventSink;
         this.clearScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "map-clear-" + sessionId);
@@ -209,6 +214,9 @@ public class AgentSession {
         clearScheduler.shutdownNow();
         if (adsbDataAdapter != null) {
             adsbDataAdapter.stopPolling();
+        }
+        if (weatherRadarDataAdapter != null) {
+            weatherRadarDataAdapter.stopPolling();
         }
     }
 
@@ -351,6 +359,13 @@ public class AgentSession {
         Map<String, Object> params = (Map<String, Object>) result.get("params");
         eventSink.accept(new AgentSessionEvent.OverlayAddEvent(overlayId, params));
         log.info("layer.overlay.add.emitted: overlayId={}", overlayId);
+        if ("weather_radar".equals(overlayId) && weatherRadarDataAdapter != null) {
+            weatherRadarDataAdapter.startPolling(
+                    snapshot ->
+                            eventSink.accept(
+                                    new AgentSessionEvent.SceneDataPushEvent(
+                                            "weather_radar", snapshot)));
+        }
     }
 
     /**
@@ -363,6 +378,9 @@ public class AgentSession {
         String overlayId = (String) result.get("overlay_id");
         eventSink.accept(new AgentSessionEvent.OverlayRemoveEvent(overlayId));
         log.info("layer.overlay.remove.emitted: overlayId={}", overlayId);
+        if ("weather_radar".equals(overlayId) && weatherRadarDataAdapter != null) {
+            weatherRadarDataAdapter.stopPolling();
+        }
     }
 
     /**
@@ -371,6 +389,9 @@ public class AgentSession {
     private void emitOverlayClear() {
         eventSink.accept(new AgentSessionEvent.OverlayClearEvent());
         log.info("layer.overlay.clear.emitted");
+        if (weatherRadarDataAdapter != null) {
+            weatherRadarDataAdapter.stopPolling();
+        }
     }
 
     /**
@@ -785,7 +806,8 @@ public class AgentSession {
                         "add_overlay",
                         "Add a data overlay on top of the current background. Multiple overlays"
                                 + " can be active simultaneously. Available overlays: 'adsb'"
-                                + " (live ADS-B aircraft radar from OpenSky Network).",
+                                + " (live ADS-B aircraft radar from OpenSky Network);"
+                                + " 'weather_radar' (live weather radar tiles from RainViewer).",
                         Map.of(
                                 "type", "object",
                                 "properties",
@@ -794,7 +816,7 @@ public class AgentSession {
                                                 Map.of(
                                                         "type", "string",
                                                         "description",
-                                                        "Overlay identifier: 'adsb'"),
+                                                        "Overlay identifier: 'adsb' or 'weather_radar'"),
                                                 "params",
                                                 Map.of(
                                                         "type", "object",

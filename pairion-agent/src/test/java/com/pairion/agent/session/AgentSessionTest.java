@@ -14,6 +14,12 @@ import com.pairion.adapters.tts.spi.TtsAdapter;
 import com.pairion.agent.soul.SoulPromptProvider;
 import com.pairion.adapters.data.adsb.AdsbDataAdapter;
 import com.pairion.adapters.data.adsb.AdsbAircraft;
+import com.pairion.adapters.data.weatherradar.WeatherRadarDataAdapter;
+import com.pairion.adapters.data.weatherradar.WeatherRadarSnapshot;
+import com.pairion.adapters.data.weatherradar.WeatherRadarFrame;
+import com.pairion.agent.tools.layer.AddOverlayTool;
+import com.pairion.agent.tools.layer.RemoveOverlayTool;
+import com.pairion.agent.tools.layer.ClearOverlaysTool;
 import com.pairion.agent.tools.ToolDispatcher;
 import com.pairion.agent.tools.layer.SetBackgroundTool;
 import com.pairion.agent.tools.map.MapFocusTool;
@@ -59,6 +65,7 @@ class AgentSessionTest {
                         ttsAdapter,
                         soulProvider,
                         toolDispatcher,
+                        null,
                         null,
                         events::add);
     }
@@ -1122,6 +1129,7 @@ class AgentSessionTest {
                         soulProvider,
                         toolDispatcher,
                         adsbAdapter,
+                        null,
                         events::add);
         when(soulProvider.getSystemPrompt("test-adsb")).thenReturn("You are Jarvis.");
 
@@ -1185,6 +1193,7 @@ class AgentSessionTest {
                         soulProvider,
                         toolDispatcher,
                         adsbAdapter,
+                        null,
                         events::add);
         when(soulProvider.getSystemPrompt("test-adsb-err")).thenReturn("You are Jarvis.");
 
@@ -1239,6 +1248,7 @@ class AgentSessionTest {
                         soulProvider,
                         toolDispatcher,
                         adsbAdapter,
+                        null,
                         events::add);
 
         // Capture the sink registered with the adapter
@@ -1391,5 +1401,328 @@ class AgentSessionTest {
         assertThat(hasMapFocus).isFalse();
 
         session.close();
+    }
+
+    // ── Weather radar overlay lifecycle ───────────────────────────────────────
+
+    /** add_overlay("weather_radar") starts weather radar polling. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void addOverlayWeatherRadarStartsPolling() {
+        WeatherRadarDataAdapter wxAdapter = mock(WeatherRadarDataAdapter.class);
+        AgentSession sessionWithWx =
+                new AgentSession(
+                        "test-wx",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        wxAdapter,
+                        events::add);
+        when(soulProvider.getSystemPrompt("test-wx")).thenReturn("You are Jarvis.");
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-wx", AddOverlayTool.TOOL_NAME,
+                                Map.of("overlay_id", "weather_radar")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar overlay active."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(AddOverlayTool.TOOL_NAME,
+                Map.of("overlay_id", "weather_radar")))
+                .thenReturn(Map.of("status", "overlay_added", "overlay_id", "weather_radar"));
+
+        sessionWithWx.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show weather radar.", 500));
+
+        org.mockito.Mockito.verify(wxAdapter).startPolling(any());
+        sessionWithWx.close();
+        org.mockito.Mockito.verify(wxAdapter).stopPolling();
+    }
+
+    /** remove_overlay("weather_radar") stops weather radar polling. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void removeOverlayWeatherRadarStopsPolling() {
+        WeatherRadarDataAdapter wxAdapter = mock(WeatherRadarDataAdapter.class);
+        AgentSession sessionWithWx =
+                new AgentSession(
+                        "test-wx-remove",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        wxAdapter,
+                        events::add);
+        when(soulProvider.getSystemPrompt("test-wx-remove")).thenReturn("You are Jarvis.");
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-wx-rm", RemoveOverlayTool.TOOL_NAME,
+                                Map.of("overlay_id", "weather_radar")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar overlay removed."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(RemoveOverlayTool.TOOL_NAME,
+                Map.of("overlay_id", "weather_radar")))
+                .thenReturn(Map.of("status", "overlay_removed", "overlay_id", "weather_radar"));
+
+        sessionWithWx.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Hide the weather radar.", 500));
+
+        org.mockito.Mockito.verify(wxAdapter).stopPolling();
+        sessionWithWx.close();
+    }
+
+    /** clear_overlays stops weather radar polling. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void clearOverlaysStopsWeatherRadarPolling() {
+        WeatherRadarDataAdapter wxAdapter = mock(WeatherRadarDataAdapter.class);
+        AgentSession sessionWithWx =
+                new AgentSession(
+                        "test-wx-clear",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        wxAdapter,
+                        events::add);
+        when(soulProvider.getSystemPrompt("test-wx-clear")).thenReturn("You are Jarvis.");
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-clear", ClearOverlaysTool.TOOL_NAME, Map.of()));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("All overlays cleared."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(ClearOverlaysTool.TOOL_NAME, Map.of()))
+                .thenReturn(Map.of("status", "overlays_cleared"));
+
+        sessionWithWx.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Clear all overlays.", 500));
+
+        org.mockito.Mockito.verify(wxAdapter).stopPolling();
+        sessionWithWx.close();
+    }
+
+    /** remove_overlay("weather_radar") with null weatherRadarDataAdapter does not throw. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void removeOverlayWeatherRadarWithNullAdapterDoesNotThrow() {
+        // Default session has null weatherRadarDataAdapter
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-wx-rm-null", RemoveOverlayTool.TOOL_NAME,
+                                Map.of("overlay_id", "weather_radar")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar overlay removed."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(RemoveOverlayTool.TOOL_NAME,
+                Map.of("overlay_id", "weather_radar")))
+                .thenReturn(Map.of("status", "overlay_removed", "overlay_id", "weather_radar"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Hide the weather radar.", 500));
+
+        boolean hasOverlayRemove = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayRemoveEvent or
+                        && "weather_radar".equals(or.overlayId()));
+        assertThat(hasOverlayRemove).isTrue();
+    }
+
+    /** add_overlay("weather_radar") with null weatherRadarDataAdapter does not throw. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void addOverlayWeatherRadarWithNullAdapterDoesNotThrow() {
+        // Default session has null weatherRadarDataAdapter
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-wx-null", AddOverlayTool.TOOL_NAME,
+                                Map.of("overlay_id", "weather_radar")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar overlay active."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(AddOverlayTool.TOOL_NAME,
+                Map.of("overlay_id", "weather_radar")))
+                .thenReturn(Map.of("status", "overlay_added", "overlay_id", "weather_radar"));
+
+        session.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show weather radar.", 500));
+
+        boolean hasOverlayAdd = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.OverlayAddEvent oa
+                        && "weather_radar".equals(oa.overlayId()));
+        assertThat(hasOverlayAdd).isTrue();
+    }
+
+    /** WeatherRadarDataAdapter sink emits SceneDataPushEvent with model ID "weather_radar". */
+    @Test
+    @SuppressWarnings("unchecked")
+    void weatherRadarAdapterSinkEmitsSceneDataPushEvent() {
+        WeatherRadarDataAdapter wxAdapter = mock(WeatherRadarDataAdapter.class);
+        AgentSession sessionWithWx =
+                new AgentSession(
+                        "test-wx-push",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        wxAdapter,
+                        events::add);
+        when(soulProvider.getSystemPrompt("test-wx-push")).thenReturn("You are Jarvis.");
+
+        java.util.concurrent.atomic.AtomicReference<Consumer<WeatherRadarSnapshot>> capturedSink =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        org.mockito.Mockito.doAnswer(inv -> {
+                    capturedSink.set(inv.getArgument(0));
+                    return null;
+                })
+                .when(wxAdapter)
+                .startPolling(any());
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(inv -> {
+                    sttConsumer[0] = inv.getArgument(0);
+                    return mockSttSession;
+                });
+
+        boolean[] firstCall = {true};
+        doAnswer(inv -> {
+                    Consumer<LlmEvent> consumer = inv.getArgument(1);
+                    if (firstCall[0]) {
+                        firstCall[0] = false;
+                        consumer.accept(new LlmEvent.ToolCallRequest(
+                                "tc-wx-p", AddOverlayTool.TOOL_NAME,
+                                Map.of("overlay_id", "weather_radar")));
+                        consumer.accept(new LlmEvent.Stop(0));
+                    } else {
+                        consumer.accept(new LlmEvent.TokenDelta("Radar active."));
+                        consumer.accept(new LlmEvent.Stop(2));
+                    }
+                    return null;
+                })
+                .when(llmAdapter).generate(any(), any());
+
+        when(toolDispatcher.dispatch(AddOverlayTool.TOOL_NAME,
+                Map.of("overlay_id", "weather_radar")))
+                .thenReturn(Map.of("status", "overlay_added", "overlay_id", "weather_radar"));
+
+        sessionWithWx.onAudioStreamStart("stream-1");
+        sttConsumer[0].accept(new SttEvent.Final("Show weather radar.", 500));
+
+        assertThat(capturedSink.get()).isNotNull();
+
+        WeatherRadarSnapshot snapshot = new WeatherRadarSnapshot(
+                "https://tilecache.rainviewer.com",
+                List.of(new WeatherRadarFrame(1713739200L, "/v2/radar/1713739200")),
+                "/v2/radar/1713739200", 256, 4, "1_1");
+        capturedSink.get().accept(snapshot);
+
+        boolean hasPush = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.SceneDataPushEvent sdp
+                        && "weather_radar".equals(sdp.modelId()));
+        assertThat(hasPush).isTrue();
+        sessionWithWx.close();
     }
 }

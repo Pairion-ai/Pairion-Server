@@ -56,7 +56,11 @@ public class DefaultSoulPromptProvider implements SoulPromptProvider {
                 + "- You have a show_adsb_radar tool. Call it immediately with NO text output"
                 + " beforehand when the user asks about live aircraft, planes in the sky, flight"
                 + " traffic, or air traffic radar. This activates the VFR sectional chart"
-                + " background with a live ADS-B aircraft overlay.";
+                + " background with a live ADS-B aircraft overlay.\n"
+                + "- You have a weather_radar overlay. When the user asks about rain, storms,"
+                + " precipitation, weather radar, or whether it will rain, call add_overlay with"
+                + " overlay_id='weather_radar' immediately with NO text output beforehand. Pair it"
+                + " with set_background('osm') for best visibility.";
 
     /**
      * Returns the placeholder system prompt.

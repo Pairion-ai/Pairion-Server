@@ -54,7 +54,7 @@ class PairionWebSocketHandlerTest {
         handler =
                 new PairionWebSocketHandler(
                         objectMapper, sttAdapter, llmAdapter, ttsAdapter, soulProvider,
-                        toolDispatcher, null);
+                        toolDispatcher, null, null);
         session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("test-session-1");
     }

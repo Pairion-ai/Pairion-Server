@@ -233,6 +233,10 @@
                                      Unit-tested via AdsbDataClient mock boundary. -->
                                 <exclude>com/pairion/adapters/data/adsb/HttpAdsbDataClient.class</exclude>
                                 <exclude>com/pairion/adapters/data/adsb/HttpAdsbDataClient$*.class</exclude>
+                                <!-- HttpWeatherRadarDataClient: makes real HTTP calls to api.rainviewer.com.
+                                     Unit-tested via WeatherRadarDataClient mock boundary. -->
+                                <exclude>com/pairion/adapters/data/weatherradar/HttpWeatherRadarDataClient.class</exclude>
+                                <exclude>com/pairion/adapters/data/weatherradar/HttpWeatherRadarDataClient$*.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

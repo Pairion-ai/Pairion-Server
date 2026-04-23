@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
  * <p>Available overlay identifiers:
  * <ul>
  *   <li>{@code adsb} — live ADS-B aircraft radar from OpenSky Network</li>
+ *   <li>{@code weather_radar} — live weather radar tiles from RainViewer</li>
  * </ul>
  */
 @Component
