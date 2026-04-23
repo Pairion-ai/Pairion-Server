@@ -42,6 +42,8 @@ public class DefaultSoulPromptProvider implements SoulPromptProvider {
                 + " background_id='space'\n"
                 + "  - Aviation, flights, or aircraft topics → set_background with"
                 + " background_id='vfr'\n"
+                + "  - Local navigation, directions, nearby places, or street-level views →"
+                + " set_background with background_id='osm'\n"
                 + "  - When returning to general topics → set_background with"
                 + " background_id='dashboard'\n"
                 + "  - Do not call set_background again if the background is already correct for"

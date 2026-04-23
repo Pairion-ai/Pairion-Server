@@ -25,6 +25,8 @@ import org.springframework.stereotype.Component;
  *   <li>{@code globe} — 3D interactive globe; use for geography, weather, or location topics</li>
  *   <li>{@code space} — animated star field; use for astronomy or space topics</li>
  *   <li>{@code vfr} — FAA VFR sectional chart; use for aviation and flight topics</li>
+ *   <li>{@code osm} — OpenStreetMap dark style; use for local navigation, directions,
+ *       street-level views, or nearby places</li>
  * </ul>
  */
 @Component
