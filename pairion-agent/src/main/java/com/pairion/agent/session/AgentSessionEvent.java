@@ -129,16 +129,20 @@ public sealed interface AgentSessionEvent
     /**
      * Commands the client to switch the active background layer.
      *
-     * <p>Emitted when the LLM calls the {@code set_background} tool. The client
-     * {@code LayerManager} loads the target background and applies the transition animation. The
-     * overlay stack is preserved — overlays reposition themselves on the new background.
+     * <p>Emitted when the LLM calls the {@code set_background} tool, or by the server to activate
+     * a default view. The client {@code LayerManager} loads the target background and applies the
+     * transition animation. The overlay stack is preserved — overlays reposition themselves on the
+     * new background.
      *
      * @param backgroundId the identifier of the background to activate (e.g. {@code "vfr"},
      *     {@code "globe"}, {@code "space"}, {@code "dashboard"})
+     * @param params optional background-specific parameters forwarded to the client plugin
+     *     (e.g. {@code zoom}, {@code center_lat}, {@code center_lon} for the OSM background);
+     *     null when not required
      * @param transition transition animation: {@code "crossfade"}, {@code "slide"}, or
      *     {@code "instant"}
      */
-    record BackgroundChangeEvent(String backgroundId, String transition)
+    record BackgroundChangeEvent(String backgroundId, Map<String, Object> params, String transition)
             implements AgentSessionEvent {}
 
     /**

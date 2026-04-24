@@ -210,6 +210,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                         weatherRadarDataAdapter,
                         event -> sendAgentEvent(session, event));
         sessions.put(session.getId(), agentSession);
+        agentSession.activateDefaultOsmView();
 
         SessionOpened response =
                 new SessionOpened(SessionOpened.TYPE, UUID.randomUUID().toString(), SERVER_VERSION);
@@ -335,7 +336,8 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             case AgentSessionEvent.BackgroundChangeEvent bc ->
                     objectMapper.writeValueAsString(
                             new BackgroundChange(
-                                    BackgroundChange.TYPE, bc.backgroundId(), bc.transition()));
+                                    BackgroundChange.TYPE, bc.backgroundId(), bc.params(),
+                                    bc.transition()));
             case AgentSessionEvent.OverlayAddEvent oa ->
                     objectMapper.writeValueAsString(
                             new OverlayAdd(OverlayAdd.TYPE, oa.overlayId(), oa.params()));

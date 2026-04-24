@@ -56,8 +56,9 @@ class AgentSessionEventTest {
     @Test
     void backgroundChangeEvent() {
         AgentSessionEvent.BackgroundChangeEvent event =
-                new AgentSessionEvent.BackgroundChangeEvent("vfr", "crossfade");
+                new AgentSessionEvent.BackgroundChangeEvent("vfr", null, "crossfade");
         assertThat(event.backgroundId()).isEqualTo("vfr");
+        assertThat(event.params()).isNull();
         assertThat(event.transition()).isEqualTo("crossfade");
         assertThat(event).isInstanceOf(AgentSessionEvent.class);
     }

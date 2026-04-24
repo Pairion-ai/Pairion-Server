@@ -306,13 +306,29 @@ public class AgentSession {
     }
 
     /**
+     * Activates the default OpenStreetMap view centred on the Dallas/Fort Worth metro area.
+     *
+     * <p>Emitted on session start so the client immediately shows a useful geographic context
+     * without requiring a voice command. No overlays are activated — the user can add ADS-B radar,
+     * weather radar, or other overlays via voice.
+     *
+     * <p>Public so the WebSocket handler can call it on device identify.
+     */
+    public void activateDefaultOsmView() {
+        Map<String, Object> params = Map.of(
+                "zoom", 10,
+                "center_lat", 32.86,
+                "center_lon", -97.04);
+        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent("osm", params, "instant"));
+        log.info("layer.osm.default.activated");
+    }
+
+    /**
      * Activates the ADS-B radar by emitting a {@link AgentSessionEvent.BackgroundChangeEvent} for
      * the VFR sectional chart background, an {@link AgentSessionEvent.OverlayAddEvent} for the
      * ADS-B aircraft overlay, and, if an {@link AdsbDataAdapter} is configured, starts the polling
      * loop. Each poll delivers a {@link AgentSessionEvent.SceneDataPushEvent} with model ID
      * {@code "adsb"}.
-     *
-     * <p>Public so the WebSocket handler can auto-activate on session start during debugging.
      */
     public void activateAdsbRadar() {
         emitAdsbRadar();
@@ -322,7 +338,7 @@ public class AgentSession {
      * @see #activateAdsbRadar()
      */
     private void emitAdsbRadar() {
-        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent("vfr", "crossfade"));
+        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent("vfr", null, "crossfade"));
         eventSink.accept(new AgentSessionEvent.OverlayAddEvent("adsb", null));
         log.info("layer.adsb-radar.activated");
         if (adsbDataAdapter != null) {
@@ -342,7 +358,7 @@ public class AgentSession {
     private void emitBackgroundChange(Map<String, Object> result) {
         String backgroundId = (String) result.get("background_id");
         String transition = (String) result.getOrDefault("transition", "crossfade");
-        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent(backgroundId, transition));
+        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent(backgroundId, null, transition));
         log.info("layer.background.emitted: backgroundId={}, transition={}", backgroundId,
                 transition);
     }

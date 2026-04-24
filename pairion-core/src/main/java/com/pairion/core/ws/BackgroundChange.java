@@ -2,6 +2,7 @@ package com.pairion.core.ws;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.Map;
 
 /**
  * Server-to-client command to switch the active background.
@@ -14,6 +15,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @param type the message type discriminator, always {@code "BackgroundChange"}
  * @param backgroundId the identifier of the background to activate (e.g. {@code "vfr"},
  *     {@code "globe"}, {@code "space"}, {@code "dashboard"})
+ * @param params optional background-specific parameters forwarded to the client background plugin
+ *     (e.g. {@code zoom}, {@code center_lat}, {@code center_lon} for the OSM background);
+ *     omitted when null
  * @param transition optional transition animation: {@code "crossfade"}, {@code "slide"}, or
  *     {@code "instant"}; defaults to {@code "crossfade"} when absent
  */
@@ -21,6 +25,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record BackgroundChange(
         @JsonProperty("type") String type,
         @JsonProperty("backgroundId") String backgroundId,
+        @JsonProperty("params") Map<String, Object> params,
         @JsonProperty("transition") String transition)
         implements WebSocketMessage {
 

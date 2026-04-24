@@ -1099,6 +1099,22 @@ class AgentSessionTest {
         assertThat(hasOverlayClear).isFalse();
     }
 
+    /** activateDefaultOsmView() emits a BackgroundChangeEvent with backgroundId="osm" and DFW params. */
+    @Test
+    void activateDefaultOsmViewEmitsBackgroundChangeEvent() {
+        session.activateDefaultOsmView();
+
+        boolean hasOsmBackground = events.stream()
+                .anyMatch(e -> e instanceof AgentSessionEvent.BackgroundChangeEvent bc
+                        && "osm".equals(bc.backgroundId())
+                        && bc.params() != null
+                        && bc.params().containsKey("zoom")
+                        && bc.params().containsKey("center_lat")
+                        && bc.params().containsKey("center_lon")
+                        && "instant".equals(bc.transition()));
+        assertThat(hasOsmBackground).isTrue();
+    }
+
     /** activateAdsbRadar() emits BackgroundChangeEvent and OverlayAddEvent (covers the public entry point). */
     @Test
     void activateAdsbRadarEmitsLayerEvents() {

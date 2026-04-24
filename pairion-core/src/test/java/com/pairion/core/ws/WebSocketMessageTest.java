@@ -281,7 +281,7 @@ class WebSocketMessageTest {
 
     @Test
     void backgroundChangeRoundTrip() throws Exception {
-        BackgroundChange msg = new BackgroundChange("BackgroundChange", "globe", "crossfade");
+        BackgroundChange msg = new BackgroundChange("BackgroundChange", "globe", null, "crossfade");
         String json = mapper.writeValueAsString(msg);
         WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);
         assertThat(deserialized).isInstanceOf(BackgroundChange.class);
@@ -294,7 +294,7 @@ class WebSocketMessageTest {
 
     @Test
     void backgroundChangeNullTransitionOmitted() throws Exception {
-        BackgroundChange msg = new BackgroundChange("BackgroundChange", "dashboard", null);
+        BackgroundChange msg = new BackgroundChange("BackgroundChange", "dashboard", null, null);
         String json = mapper.writeValueAsString(msg);
         assertThat(json).doesNotContain("\"transition\"");
         WebSocketMessage deserialized = mapper.readValue(json, WebSocketMessage.class);

@@ -71,7 +71,7 @@ class PairionWebSocketHandlerTest {
                         + "\"bearerToken\":\"tok\",\"clientVersion\":\"1.0\"}";
         handler.handleTextMessage(session, new TextMessage(json));
 
-        // DeviceIdentify auto-activates ADS-B radar: BackgroundChange + OverlayAdd + SessionOpened
+        // DeviceIdentify auto-activates OSM view: BackgroundChange(osm) + SessionOpened
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session, org.mockito.Mockito.atLeast(1)).sendMessage(captor.capture());
 
@@ -342,7 +342,7 @@ class PairionWebSocketHandlerTest {
         handler.sendAgentEvent(
                 session,
                 new com.pairion.agent.session.AgentSessionEvent.BackgroundChangeEvent(
-                        "globe", "crossfade"));
+                        "globe", null, "crossfade"));
 
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(captor.capture());
