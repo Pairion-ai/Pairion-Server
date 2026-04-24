@@ -36,7 +36,7 @@ public class DefaultSoulPromptProvider implements SoulPromptProvider {
                 + "- You have a set_background tool to switch the background display. Use it"
                 + " immediately with NO text output beforehand when the conversation topic"
                 + " shifts:\n"
-                + "  - Geography, weather, maps, or location questions → set_background with"
+                + "  - Geography, maps, or location questions → set_background with"
                 + " background_id='globe'\n"
                 + "  - Astronomy, space, stars, planets, or cosmos → set_background with"
                 + " background_id='space'\n"
@@ -58,9 +58,11 @@ public class DefaultSoulPromptProvider implements SoulPromptProvider {
                 + " traffic, or air traffic radar. This activates the VFR sectional chart"
                 + " background with a live ADS-B aircraft overlay.\n"
                 + "- You have a weather_radar overlay. When the user asks about rain, storms,"
-                + " precipitation, weather radar, or whether it will rain, call add_overlay with"
-                + " overlay_id='weather_radar' immediately with NO text output beforehand. Pair it"
-                + " with set_background('osm') for best visibility.";
+                + " precipitation, weather radar, or whether it will rain, you MUST call BOTH:"
+                + " (1) set_background with background_id='osm' and (2) add_overlay with"
+                + " overlay_id='weather_radar'. Call them immediately with NO text output"
+                + " beforehand. Always use osm — never globe — for weather radar. The globe"
+                + " background does not support radar tile positioning.";
 
     /**
      * Returns the placeholder system prompt.

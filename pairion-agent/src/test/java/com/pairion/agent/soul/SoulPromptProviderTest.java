@@ -107,4 +107,13 @@ class SoulPromptProviderTest {
         assertThat(prompt).contains("weather_radar");
         assertThat(prompt).contains("rain");
     }
+
+    @Test
+    void promptPairsWeatherRadarWithOsmNotGlobe() {
+        DefaultSoulPromptProvider provider = new DefaultSoulPromptProvider();
+        String prompt = provider.getSystemPrompt("session-1");
+        // weather_radar must be paired with osm, and explicitly warn against globe
+        assertThat(prompt).contains("osm");
+        assertThat(prompt).containsIgnoringCase("never globe");
+    }
 }
