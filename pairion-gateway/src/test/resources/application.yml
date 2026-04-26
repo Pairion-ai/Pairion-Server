@@ -14,3 +14,7 @@ pairion:
   stt:
     native:
       enabled: false
+  data:
+    adsb:
+      opensky-username: test-user
+      opensky-password: test-pass

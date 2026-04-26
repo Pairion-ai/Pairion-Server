@@ -174,9 +174,13 @@ logging:
 
 **Environment variables:**
 
+Copy `.env.example` to `.env` (or export variables in your shell) before starting the server.
+
 | Variable | Required | Description |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | No (warns if absent) | Required for `llm: anthropic` only |
+| `OPENSKY_USERNAME` | No | OpenSky Network username — enables authenticated ADS-B access (higher rate limits) |
+| `OPENSKY_PASSWORD` | No | OpenSky Network password — paired with `OPENSKY_USERNAME` |
 | `PAIRION_HOME` | No (default: `~/.pairion`) | Base directory for native libs and models |
 | `PAIRION_NATIVE_TESTS` | No | Set to `1` to run integration tests against real whisper.cpp |
 

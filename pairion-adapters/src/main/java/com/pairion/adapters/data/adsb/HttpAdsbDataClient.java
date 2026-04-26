@@ -63,6 +63,9 @@ class HttpAdsbDataClient implements AdsbDataClient {
     /**
      * Constructs the client with a 10-second connect timeout and optional Basic auth credentials.
      *
+     * <p>If either credential is absent or blank, the client logs a warning at startup and operates
+     * in unauthenticated mode. OpenSky permits unauthenticated access at a reduced rate limit.
+     *
      * @param username OpenSky Network username; empty string disables authentication
      * @param password OpenSky Network password; empty string disables authentication
      */
@@ -72,6 +75,11 @@ class HttpAdsbDataClient implements AdsbDataClient {
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.objectMapper = new ObjectMapper();
         this.authHeader = buildAuthHeader(username, password);
+        if (this.authHeader == null) {
+            log.warn(
+                    "adsb.credentials.absent: OPENSKY_USERNAME/OPENSKY_PASSWORD not configured;"
+                            + " operating unauthenticated (reduced rate limits apply)");
+        }
     }
 
     /**

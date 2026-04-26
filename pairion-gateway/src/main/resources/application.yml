@@ -48,8 +48,10 @@ pairion:
       lomax: -96.080   # eastern boundary (~25nm east of home)
       poll-interval-seconds: 10
       # OpenSky Network credentials (HTTP Basic Auth — increases rate limits)
-      opensky-username: aallard
-      opensky-password: Annabelle01*
+      # Set OPENSKY_USERNAME and OPENSKY_PASSWORD environment variables.
+      # If absent, the ADS-B client operates unauthenticated (lower rate limits).
+      opensky-username: ${OPENSKY_USERNAME:}
+      opensky-password: ${OPENSKY_PASSWORD:}
 
 logging:
   level:
