@@ -1,575 +1,651 @@
 # Pairion-Server — Codebase Audit
 
-**Generated:** 2026-04-26T15:30:00Z
+**Generated:** 2026-04-26T00:00:00Z
+**Commit:** 0e62e76817d5b320a62230925b36611258bb66c9
 **Branch:** main
-**Commit:** 94bc92ac33d4166c8915451bfaf2387050ab980c feat: auto-activate OSM background on session start with DFW default view (PS-OSM-001)
-
----
----
-
-### 1. Project Identity
-
-```
-Project Name:      Pairion Server
-Repository URL:    local — ~/Documents/GitHub/Pairion-Server
-Primary Language:  Java 21 / Spring Boot 3.4.4
-Language Version:  OpenJDK 21.0.10 2026-01-20 LTS (with --enable-preview)
-Build Tool:        Apache Maven 3.9.12
-Package Manager:   Maven (no separate package manager)
-Current Branch:    main
-Latest Commit:     94bc92ac33d4166c8915451bfaf2387050ab980c
-Latest Message:    feat: auto-activate OSM background on session start with DFW default view (PS-OSM-001)
-Audit Timestamp:   2026-04-26T15:30:00Z
-```
+**Template:** Codebase-Audit-Template.md
 
 ---
 
-### 2. Directory Structure
+---
 
-Multi-module Maven project. Source root is `src/main/java/com/pairion/` within each module. Nine modules under the project root.
+## 1. Project Identity
 
 ```
-pairion-server/                         ← root POM (packaging=pom)
-├── pom.xml
-├── CLAUDE.md, Architecture.md, CONVENTIONS.md, openapi.yaml, asyncapi.yaml
-├── pairion-core/                       ← shared domain types (no Spring)
+Project Name:          Pairion Server
+Repository URL:        ~/Documents/GitHub/Pairion-Server
+Primary Language:      Java 21 (Spring Boot 3.4.4)
+Language/Runtime:      OpenJDK 21.0.10 LTS (preview features enabled: --enable-preview)
+Build Tool:            Apache Maven 3.9.12
+Package Manager:       Maven (Central)
+Current Branch:        main
+Latest Commit Hash:    0e62e76817d5b320a62230925b36611258bb66c9
+Latest Commit Message: feat: WeatherCurrent overlay data adapter with Open-Meteo (PX-WXCUR-001)
+Audit Timestamp:       2026-04-26T00:00:00Z
+```
+
+Ambient, voice-first, household-scale AI presence server. Multi-module Maven project (9 modules). No database; no message broker. All state is in-memory, per WebSocket session.
+
+---
+
+## 2. Directory Structure
+
+Multi-module Maven project with 9 modules: 2 native-binding modules and 7 Java modules.
+
+```
+pairion-server/
+├── pom.xml                            root aggregator POM
+├── CLAUDE.md / CONVENTIONS.md / Architecture.md
+├── openapi.yaml / asyncapi.yaml       API contracts
+├── config/checkstyle/                 Checkstyle rules + suppressions
+│
+├── pairion-native-whisper/            jextract-generated FFM bindings for whisper.cpp
+│   └── src/main/java/com/pairion/nativelib/whisper/
+│       ├── NativeLibraryLoader.java
+│       └── (generated: WhisperBindings, RuntimeHelper, whisper_context_params, whisper_full_params)
+│
+├── pairion-native-piper/              jextract-generated FFM bindings for Piper TTS
+│   └── src/main/java/com/pairion/nativelib/piper/   (generated bindings)
+│
+├── pairion-core/                      domain types (sealed interfaces, records, enums)
 │   └── src/main/java/com/pairion/core/
-│       ├── agent/   AgentState.java
-│       ├── llm/     LlmCapabilities, LlmEvent, LlmRequest, ToolDefinition
-│       ├── stt/     SttCapabilities, SttEvent
-│       ├── tts/     TtsCapabilities, TtsEvent
-│       ├── util/    ModelDownloader
-│       └── ws/      WebSocketMessage + 28 record subtypes
-├── pairion-adapters/                   ← SPI implementations
+│       ├── agent/AgentState.java
+│       ├── llm/{LlmEvent, LlmRequest, LlmCapabilities, ToolDefinition}.java
+│       ├── stt/{SttEvent, SttCapabilities}.java
+│       ├── tts/{TtsEvent, TtsCapabilities}.java
+│       ├── util/ModelDownloader.java
+│       └── ws/  (28 WebSocket message types — sealed interface WebSocketMessage)
+│
+├── pairion-adapters/                  adapter SPI + implementations
 │   └── src/main/java/com/pairion/adapters/
-│       ├── audio/opus/   OpusEncoder, OpusDecoder, Concentus wrappers
-│       ├── data/adsb/    AdsbDataAdapter, HttpAdsbDataClient, AdsbEnrichmentService
-│       ├── data/weatherradar/  WeatherRadarDataAdapter, HttpWeatherRadarDataClient
-│       ├── embedding/spi/  EmbeddingAdapter (interface only)
-│       ├── llm/anthropic/  AnthropicLlmAdapter, DefaultAnthropicClientWrapper
-│       ├── llm/openaicompat/  OpenAiCompatLlmAdapter, SSE parser
-│       ├── llm/spi/     LlmAdapter (interface)
-│       ├── stt/spi/     SttAdapter (interface)
-│       ├── stt/whispercpp/  WhisperCppSttAdapter, DefaultWhisperCppNative
-│       ├── tts/piper/   PiperTtsAdapter, DefaultPiperTtsNative
-│       ├── tts/spi/     TtsAdapter (interface)
-│       ├── vad/spi/     VadAdapter (interface)
-│       ├── vectorstore/spi/  VectorStoreAdapter (interface)
-│       ├── voiceid/spi/  VoiceIdAdapter (interface)
-│       └── wake/spi/    WakeAdapter (interface)
-├── pairion-agent/                      ← turn loop + tool definitions
+│       ├── audio/opus/                Opus encode/decode (Concentus + native)
+│       ├── data/adsb/                 ADS-B: AdsbDataAdapter, AdsbEnrichmentService, HttpAdsbDataClient
+│       ├── data/weatherradar/         Weather radar: WeatherRadarDataAdapter, HttpWeatherRadarDataClient
+│       ├── data/weathercurrent/       Current weather: WeatherCurrentDataAdapter, HttpWeatherCurrentDataClient
+│       ├── embedding/spi/             EmbeddingAdapter SPI (no implementation yet)
+│       ├── llm/anthropic/             AnthropicLlmAdapter + DefaultAnthropicClientWrapper
+│       ├── llm/openaicompat/          OpenAiCompatLlmAdapter + SSE parser
+│       ├── llm/spi/                   LlmAdapter SPI
+│       ├── stt/spi/                   SttAdapter SPI
+│       ├── stt/whispercpp/            WhisperCppSttAdapter + DefaultWhisperCppNative
+│       ├── tts/piper/                 PiperTtsAdapter + DefaultPiperTtsNative
+│       ├── tts/spi/                   TtsAdapter SPI
+│       ├── vad/spi/                   VadAdapter SPI (no implementation)
+│       ├── vectorstore/spi/           VectorStoreAdapter SPI (no implementation)
+│       ├── voiceid/spi/               VoiceIdAdapter SPI (no implementation)
+│       └── wake/spi/                  WakeAdapter SPI (no implementation)
+│
+├── pairion-household/                 placeholder module (package-info.java only)
+├── pairion-memory/                    placeholder module (package-info.java only)
+├── pairion-skills/                    placeholder module (package-info.java only)
+│
+├── pairion-agent/                     turn loop, tools, SOUL prompt
 │   └── src/main/java/com/pairion/agent/
-│       ├── session/  AgentSession, AgentSessionEvent
-│       ├── soul/     SoulPromptProvider, DefaultSoulPromptProvider
-│       ├── tools/    AgentTool, ToolDispatcher
-│       │   ├── layer/  SetBackgroundTool, AddOverlayTool, RemoveOverlayTool, ClearOverlaysTool
-│       │   ├── map/    MapFocusTool
-│       │   ├── scene/  ShowAdsbRadarTool
-│       │   └── weather/  OpenMeteoWeatherTool
-│       └── util/     MarkdownStripper
-├── pairion-gateway/                    ← Spring Boot entry point + controllers
-│   └── src/main/java/com/pairion/gateway/
-│       ├── config/   WebSocketConfig, ApiKeyRedactionFilter
-│       ├── rest/     HealthController, AdapterController, HouseholdController,
-│       │             LogController, MemoryController, SkillController
-│       ├── startup/  ModelStartupService
-│       └── ws/       PairionWebSocketHandler
-├── pairion-household/                  ← placeholder module (package-info only)
-├── pairion-memory/                     ← placeholder module (package-info only)
-├── pairion-skills/                     ← placeholder module (package-info only)
-├── pairion-native-whisper/             ← jextract-generated Whisper JNI bindings
-└── pairion-native-piper/               ← CMake-built Piper TTS native library
+│       ├── session/{AgentSession, AgentSessionEvent}.java
+│       ├── soul/{SoulPromptProvider, DefaultSoulPromptProvider}.java
+│       ├── tools/{AgentTool, ToolDispatcher}.java
+│       ├── tools/layer/{AddOverlayTool, ClearOverlaysTool, RemoveOverlayTool, SetBackgroundTool}.java
+│       ├── tools/map/MapFocusTool.java
+│       ├── tools/scene/ShowAdsbRadarTool.java
+│       ├── tools/weather/OpenMeteoWeatherTool.java
+│       └── util/MarkdownStripper.java
+│
+└── pairion-gateway/                   Spring Boot entry point
+    └── src/main/java/com/pairion/gateway/
+        ├── PairionServerApplication.java
+        ├── config/{WebSocketConfig, ApiKeyRedactionFilter}.java
+        ├── rest/{AdapterController, HealthController, HouseholdController,
+        │         LogController, MemoryController, SkillController}.java
+        ├── startup/ModelStartupService.java
+        └── ws/PairionWebSocketHandler.java
 ```
 
 ---
 
-### 3. Build & Dependency Manifest
+## 3. Build & Dependency Manifest
 
-File: `/pom.xml` (root), plus per-module `pom.xml` files in each of the 9 modules.
+**Build file:** `pom.xml` (root) + module-level `pom.xml` per module.
 
+### Root-level global dependencies (all modules inherit):
 | Dependency | Version | Purpose |
 |---|---|---|
-| spring-boot-starter-parent | 3.4.4 | Spring Boot BOM and parent |
-| spring-boot-starter-web | (via parent) | REST controllers, embedded Tomcat |
-| spring-boot-starter-websocket | (via parent) | WebSocket support |
-| spring-boot-starter-logging / logback | (via parent) | Centralized structured logging |
-| com.anthropic:sdk | (resolved via anthropic module pom) | Anthropic Claude Java SDK |
-| com.fasterxml.jackson | (via parent) | JSON serialization/deserialization |
-| concentus | (adapters pom) | Pure-Java Opus codec (no native library) |
-| slf4j-api | (managed) | Logging facade |
-| junit-jupiter | (test scope) | JUnit 5 unit tests |
-| assertj-core | (test scope) | Fluent assertions |
-| mockito-core | (test scope) | Mocking framework |
-| archunit | 1.3.0 | Architecture enforcement rules |
-| jacoco-maven-plugin | 0.8.12 | Code coverage with 100% enforcement |
-| spotless-maven-plugin | 2.43.0 | Code formatting (Google Java Format AOSP style) |
-| maven-checkstyle-plugin | 3.6.0 | Static analysis / style enforcement |
-| checkstyle | 10.21.4 | Checkstyle rules engine |
+| slf4j-api | (Spring Boot managed) | Logging facade |
+| junit-jupiter | (Spring Boot managed) | Unit testing |
+| assertj-core | (Spring Boot managed) | Fluent assertions |
+| mockito-core | (Spring Boot managed) | Mocking |
 
-Build commands:
-```
-Build:    mvn compile
-Test:     mvn test
-Verify:   mvn verify          (includes jacoco check + checkstyle)
-Run:      mvn spring-boot:run -pl pairion-gateway
-Package:  mvn package
-```
+### pairion-adapters dependencies:
+| Dependency | Version | Purpose |
+|---|---|---|
+| anthropic-java | 2.25.0 | Anthropic Claude SDK (Anthropic LLM adapter) |
+| concentus | 1.0.2 | Pure-Java Opus codec (encode/decode audio) |
+| spring-context | (managed) | Spring DI (@Component, @ConditionalOnProperty) |
+| spring-boot-autoconfigure | (managed) | Conditional bean creation |
 
-Compiler flags: `--enable-preview` (Java 21 preview features active), `-Xlint:all`.
-Maven Surefire: `--enable-preview --enable-native-access=ALL-UNNAMED` for JNI test support.
+### pairion-agent dependencies:
+| Dependency | Version | Purpose |
+|---|---|---|
+| pairion-core | 0.1.0-SNAPSHOT | Domain types |
+| pairion-adapters | 0.1.0-SNAPSHOT | Adapter SPIs |
+| spring-context | (managed) | DI |
+| jackson-databind | (Spring Boot managed) | JSON parsing in tools |
+
+### pairion-gateway dependencies:
+| Dependency | Version | Purpose |
+|---|---|---|
+| spring-boot-starter-web | (managed) | REST controllers, Tomcat |
+| spring-boot-starter-websocket | (managed) | WebSocket support |
+| jackson-databind | (managed) | JSON serialization |
+| archunit-core | 1.3.0 | Architecture enforcement tests |
+| All pairion-* modules | 0.1.0-SNAPSHOT | Internal dependencies |
+
+### Build plugins:
+| Plugin | Version | Configuration |
+|---|---|---|
+| maven-compiler-plugin | (managed) | Java 21, --enable-preview, -Xlint:all |
+| maven-surefire-plugin | (managed) | --enable-preview, --enable-native-access=ALL-UNNAMED |
+| jacoco-maven-plugin | 0.8.12 | 100% LINE + BRANCH coverage enforced; 12 class exclusions for native/HTTP boundaries |
+| spotless-maven-plugin | 2.43.0 | Google Java Format (AOSP style), remove unused imports |
+| maven-checkstyle-plugin | 3.6.0 (checkstyle 10.21.4) | config/checkstyle/checkstyle.xml; fails on violation |
+
+### Build commands:
+```
+Build:   mvn compile
+Test:    mvn test
+Verify:  mvn verify          (includes JaCoCo coverage check + Checkstyle)
+Package: mvn package -DskipTests
+Run:     mvn spring-boot:run -pl pairion-gateway
+```
 
 ---
 
-### 4. Configuration & Infrastructure Summary
+## 4. Configuration & Infrastructure Summary
 
+### Config files:
 **`pairion-gateway/src/main/resources/application.yml`**
-Port 18789; virtual threads enabled. Selects LLM adapter via `pairion.adapters.llm` (default: `anthropic`). OpenAI-compat base URL `http://localhost:1234/v1`. Piper voice `en_GB-alan-medium`. ADS-B bounding box centred ~DFW. Log file at `~/Pairion/logs/pairion.log` with 10MB rolling, 7-day retention.
+- Server port: `18789`
+- Tomcat WebSocket: max binary message 1 MB, max text message 256 KB
+- Spring virtual threads: enabled
+- LLM adapter selector: `pairion.adapters.llm` = `openaicompat` (default config; Anthropic is default bean when property absent)
+- OpenAI-compatible adapter: `baseUrl=http://localhost:1234/v1`, `model=qwen2.5-14b-instruct-mlx`, `connectTimeoutSeconds=10`, `requestTimeoutSeconds=30`
+- Anthropic adapter: model defaults to `claude-sonnet-4-6`, requires `ANTHROPIC_API_KEY` env var
+- TTS/Piper voice: `en_GB-alan-medium`, `length-scale=0.85`
+- ADS-B home: lat=33.814427, lon=-96.582106, radius=25nm, bbox configured, poll=10s
+- ADS-B auth: `${OPENSKY_USERNAME:}` / `${OPENSKY_PASSWORD:}` (optional)
+- Logging: root=INFO, `com.pairion`=DEBUG, file at `$HOME/Pairion/logs/pairion.log`, rolling 10MB/7-day
 
 **`pairion-gateway/src/main/resources/logback-spring.xml`**
-Configures `ApiKeyRedactionFilter` as a Logback TurboFilter to deny any log event matching `sk-ant-[A-Za-z0-9_-]+` before it reaches any appender.
+- Console + rolling file appenders; `com.pairion`=DEBUG, root=INFO
+- Rolling policy: 10MB max file, 30-day history, 1GB total cap
+- ApiKeyRedactionFilter registered as Logback TurboFilter (redacts `sk-ant-*` patterns before any appender sees them)
 
-**`pairion-gateway/src/test/resources/application.yml`**
-Test overrides: disables STT/TTS native adapters, uses stub LLM adapter.
-
-**`config/checkstyle/checkstyle.xml`** and **`config/checkstyle/suppressions.xml`**
-Checkstyle rules enforced at `verify` phase on main source only (tests excluded).
-
-**Connection map:**
+### Connection map:
 ```
-Database:        None — no persistence layer currently active
-Cache:           In-memory only (ConcurrentHashMap in AdsbEnrichmentService)
-Message Broker:  None
-External APIs:
-  - https://api.anthropic.com (LLM — Anthropic Claude, via ANTHROPIC_API_KEY)
-  - http://localhost:1234/v1   (LLM — local OpenAI-compatible, e.g. LM Studio)
-  - https://opensky-network.org/api/states/all (ADS-B aircraft data)
-  - https://geocoding-api.open-meteo.com/v1/search (geocoding for focus_map and weather)
-  - https://api.open-meteo.com/v1/forecast (weather data)
-  - https://api.rainviewer.com/public/weather-maps.json (weather radar tile metadata)
+Database:       None — all state is in-memory, per WebSocket session
+Cache:          None — in-memory only (AdsbEnrichmentService uses ConcurrentHashMap with TTL)
+Message Broker: None
+External APIs (outbound HTTP):
+  - Anthropic API (https://api.anthropic.com) — LLM inference (when llm=anthropic)
+  - OpenAI-compatible API (http://localhost:1234/v1 by default) — LLM inference (when llm=openaicompat)
+  - OpenSky Network (https://opensky-network.org/api/) — ADS-B state vectors, metadata, routes
+  - RainViewer (https://api.rainviewer.com/public/weather-maps.json) — radar tile metadata
+  - Open-Meteo geocoding (https://geocoding-api.open-meteo.com/v1/search) — city geocoding
+  - Open-Meteo forecast (https://api.open-meteo.com/v1/forecast) — current weather
+  - Hugging Face (https://huggingface.co) — Whisper model download on first run
+  - Piper model CDN — TTS ONNX model download on first run
 Cloud Services:  None
 ```
 
-**CI/CD:** No `.github/workflows`, Jenkinsfile, or other CI pipeline config detected at project root. None configured.
+### CI/CD:
+No `.github/workflows`, `Jenkinsfile`, or `.gitlab-ci.yml` detected in the repository.
 
 ---
 
-### 5. Startup & Runtime Behavior
+## 5. Startup & Runtime Behavior
 
-**Entry point:** `com.pairion.gateway.PairionServerApplication` — `@SpringBootApplication(scanBasePackages = "com.pairion")`. Launches Spring via `SpringApplication.run()`.
+**Entry point:** `com.pairion.gateway.PairionServerApplication` (`@SpringBootApplication(scanBasePackages="com.pairion")`)
 
 **Startup sequence:**
-1. Spring DI context loads all modules under `com.pairion` package scan.
-2. `WebSocketConfig` registers `PairionWebSocketHandler` at `/ws/v1` (all origins).
-3. Adapter selection: `@ConditionalOnProperty` wires either `AnthropicLlmAdapter` (default) or `OpenAiCompatLlmAdapter` depending on `pairion.adapters.llm` value.
-4. STT and TTS adapters wire via `@ConditionalOnProperty`; both report as unavailable without native libraries.
-5. `ModelStartupService.onApplicationReady()` fires after context ready; spawns two virtual threads to download Whisper STT model and Piper TTS voice ONNX model. Downloads are idempotent (skip if already present); SHA-256 verified.
-6. No database migrations — no persistence layer.
-7. No seed data.
+1. Spring Boot starts Tomcat on port 18789 with virtual threads enabled
+2. Spring scans all `com.pairion.*` packages and autowires beans
+3. `WebSocketConfig` registers `PairionWebSocketHandler` at `/ws/v1` with `setAllowedOrigins("*")`
+4. `ModelStartupService` listens for `ApplicationReadyEvent` and then:
+   - Spawns virtual thread `model-download-whisper-model` → downloads `ggml-small.en.bin` to `$PAIRION_HOME/models/whisper/` (idempotent, SHA-256 verified)
+   - Spawns virtual thread `model-download-piper-model` → downloads `<voice>.onnx` + `.onnx.json` to `$PAIRION_HOME/models/tts/`
+5. `AdsbDataAdapter`, `WeatherRadarDataAdapter`, `WeatherCurrentDataAdapter` beans are initialized but idle — polling starts per-session when activated by LLM tool call
+6. LLM adapter bean activated conditionally: `AnthropicLlmAdapter` when `pairion.adapters.llm=anthropic` (or absent); `OpenAiCompatLlmAdapter` when `=openaicompat`
 
-**Scheduled tasks:**
-- `AdsbDataAdapter`: single-thread `ScheduledExecutorService` running at `pairion.data.adsb.poll-interval-seconds` (default: 10s) while ADS-B radar is active per session.
-- `WeatherRadarDataAdapter`: single-thread `ScheduledExecutorService` at `pairion.data.weatherradar.poll-interval-seconds` (default: 300s) while weather radar overlay is active.
-- `AgentSession.clearScheduler`: per-session daemon thread scheduling 2-minute map-clear timer.
+**Scheduled tasks / background workers:**
+- `ModelStartupService`: one-shot virtual threads at startup for model downloads
+- `AdsbDataAdapter`: per-session daemon thread pool (`adsb-poller`) at 10s interval (starts/stops with overlay activation)
+- `WeatherRadarDataAdapter`: per-session daemon thread (`weather-radar-poller`) at 300s interval
+- `WeatherCurrentDataAdapter`: one-shot virtual thread per request (`weather-current-fetch`)
+- `AgentSession.clearScheduler`: single-thread scheduled executor (`map-clear-<sessionId>`) for 2-minute map auto-clear
 
-**Health check:** `GET /v1/health` → `{"status": "healthy"}` (HealthController).
+**Health check:** `GET /v1/health` → `{"status": "healthy"}` (always 200, no dependency checks)
 
----
-
-### 6. Data Model / Entity Layer
-
-No JPA entities or database persistence. Data is carried in Java records (immutable value types). Key domain records:
-
-```
-=== AdsbAircraft (file: pairion-adapters/.../data/adsb/AdsbAircraft.java) ===
-Storage: In-memory (pushed via WebSocket — no DB persistence)
-Type: Java record
-@JsonInclude(JsonInclude.Include.NON_NULL)
-
-Fields:
-  - icao24: String        (ICAO 24-bit address hex)
-  - callsign: String      (nullable — trimmed flight callsign)
-  - lat: Double           (nullable — decimal degrees)
-  - lon: Double           (nullable — decimal degrees)
-  - altitudeFt: Double    (nullable — barometric altitude, converted from metres)
-  - speedKnots: Double    (nullable — converted from m/s)
-  - trackDeg: Double      (nullable — true track degrees)
-  - verticalRateFpm: Double (nullable — converted from m/s)
-  - onGround: boolean
-  - registration: String  (nullable — enriched via OpenSky metadata API)
-  - aircraftType: String  (nullable — ICAO type code, enriched)
-  - origin: String        (nullable — departure airport ICAO, enriched)
-  - destination: String   (nullable — destination airport ICAO, enriched)
-
-Audit Fields: none (ephemeral snapshot)
-Relationships: none
-```
-
-```
-=== WeatherRadarSnapshot (file: pairion-adapters/.../data/weatherradar/WeatherRadarSnapshot.java) ===
-Storage: In-memory (pushed via WebSocket)
-Type: Java record
-@JsonInclude(JsonInclude.Include.NON_NULL)
-
-Fields:
-  - host: String          (RainViewer tile cache host URL)
-  - frames: List<WeatherRadarFrame>
-  - latestPath: String    (path of most recent frame)
-  - tileSize: int         (always 256)
-  - colorScheme: int      (1–8, default 4 = TurboMap)
-  - options: String       ("1_1" = smooth + snow)
-```
-
-```
-=== WeatherRadarFrame (file: pairion-adapters/.../data/weatherradar/WeatherRadarFrame.java) ===
-Type: Java record
-Fields:
-  - time: long            (Unix epoch seconds)
-  - path: String          (tile URL path fragment)
-```
-
-```
-=== AgentSessionEvent subtypes (file: pairion-agent/.../session/AgentSessionEvent.java) ===
-Sealed interface — 17 record subtypes carrying all WebSocket-bound events:
-StateChangeEvent, TranscriptPartialEvent, TranscriptFinalEvent, LlmTokenEvent,
-ToolCallStartedEvent, ToolCallCompletedEvent, AudioStreamStartEvent, AudioChunkEvent,
-AudioStreamEndEvent, MapFocusEvent, MapClearEvent, ConversationEndedEvent,
-BackgroundChangeEvent, OverlayAddEvent, OverlayRemoveEvent, OverlayClearEvent, SceneDataPushEvent
-```
+**WebSocket endpoint:** `ws://<host>:18789/ws/v1`
 
 ---
 
-### 7. Enum / Constant Inventory
+## 6. Data Model / Entity Layer
 
-```
-=== AgentState (file: pairion-core/.../core/agent/AgentState.java) ===
-Values: IDLE("idle"), LISTENING("listening"), THINKING("thinking"), SPEAKING("speaking")
-Used in: AgentSession (state machine), AgentSessionEvent.StateChangeEvent, AgentStateChange (ws record)
-Has display label: YES (wireValue() returns lowercase string for protocol use)
-Serialization: custom wireValue() string via enum constructor; e.g. IDLE → "idle"
-```
-
-No other enums. LLM event types and WebSocket message types use sealed interfaces with record subtypes rather than enums.
+No JPA entities or database-backed models. All domain types are Java 21 records or sealed interfaces. No persistence layer.
 
 ---
 
-### 8. Data Access / Repository Layer
+### WebSocket Protocol Messages (`pairion-core/src/main/java/com/pairion/core/ws/`)
 
-No repository or DAO layer exists. There is no database. Data access is done via HTTP clients (external APIs) with an in-memory cache for ADS-B enrichment.
+**`WebSocketMessage`** — sealed interface, Jackson polymorphic discriminator `type` field.
 
-**HTTP client boundaries (SPI pattern):**
+Permitted implementations (all are Java records unless noted):
 
-```
-=== AdsbDataClient (file: pairion-adapters/.../data/adsb/AdsbDataClient.java) ===
-Interface — production impl: HttpAdsbDataClient (@Component, package-private)
+| Type discriminator | Class | Direction | Key fields |
+|---|---|---|---|
+| `DeviceIdentify` | `DeviceIdentify` | Client→Server | `deviceId: String`, `clientVersion: String` |
+| `SessionOpened` | `SessionOpened` | Server→Client | `sessionId: String`, `serverVersion: String` |
+| `SessionClosed` | `SessionClosed` | Server→Client | (none) |
+| `HeartbeatPing` | `HeartbeatPing` | Client→Server | `timestamp: String` |
+| `HeartbeatPong` | `HeartbeatPong` | Server→Client | `timestamp: String` |
+| `Error` | `ErrorMessage` | Server→Client | `code: String`, `message: String` |
+| `AgentStateChange` | `AgentStateChange` | Server→Client | `state: String` (wire value) |
+| `WakeWordDetected` | `WakeWordDetected` | Server→Client | (none) |
+| `AudioStreamStart` | `AudioStreamStart` | Both | `streamId: String`, `codec: String`, `sampleRate: int` |
+| `SpeechEnded` | `SpeechEnded` | Client→Server | (none) |
+| `AudioStreamEnd` | `AudioStreamEnd` | Server→Client | `streamId: String`, `reason: String` |
+| `TextMessage` | `TextMessage` | Client→Server | `text: String` |
+| `TranscriptPartial` | `TranscriptPartial` | Server→Client | `text: String` |
+| `TranscriptFinal` | `TranscriptFinal` | Server→Client | `text: String` |
+| `LlmTokenStream` | `LlmTokenStream` | Server→Client | `delta: String` |
+| `ToolCallStarted` | `ToolCallStarted` | Server→Client | `toolCallId: String`, `toolName: String`, `input: Map<String,Object>` |
+| `ToolCallCompleted` | `ToolCallCompleted` | Server→Client | `toolCallId: String`, `output: Map<String,Object>` |
+| `UnderBreathAck` | `UnderBreathAck` | Server→Client | (none) |
+| `MapFocus` | `MapFocus` | Server→Client | `lat: double`, `lon: double`, `label: String`, `zoom: String` |
+| `MapClear` | `MapClear` | Server→Client | (none) |
+| `ConversationEnded` | `ConversationEnded` | Server→Client | (none) |
+| `BackgroundChange` | `BackgroundChange` | Server→Client | `backgroundId: String`, `params: Map<String,Object>`, `transition: String` |
+| `OverlayAdd` | `OverlayAdd` | Server→Client | `overlayId: String`, `params: Map<String,Object>` |
+| `OverlayRemove` | `OverlayRemove` | Server→Client | `overlayId: String` |
+| `OverlayClear` | `OverlayClear` | Server→Client | (none) |
+| `SceneDataPush` | `SceneDataPush` | Server→Client | `modelId: String`, `data: Object` |
+
+---
+
+### LLM Domain Types (`pairion-core/src/main/java/com/pairion/core/llm/`)
+
+**`LlmRequest`** — record
+- `systemPrompt: String`, `userMessage: String`, `toolDefinitions: List<ToolDefinition>`, `model: String` (nullable), `toolCallHistory: List<ToolCallPair>`
+- Nested record: `ToolCallPair(toolCallId, toolName, toolInput, toolOutput)`
+- Static factory: `LlmRequest.simple(systemPrompt, userMessage)`
+
+**`LlmEvent`** — sealed interface
+- `TokenDelta(delta: String)`
+- `ToolCallRequest(toolCallId: String, toolName: String, input: Map<String,Object>)`
+- `ToolCallResult(toolCallId: String, output: Map<String,Object>)`
+- `Stop(outputTokens: int)`
+
+**`LlmCapabilities`** — record: `available: boolean`, `streaming: boolean`, `toolUse: boolean`
+- Static factory: `LlmCapabilities.unavailable()`
+
+**`ToolDefinition`** — record: `name: String`, `description: String`, `inputSchema: Map<String,Object>`
+
+---
+
+### STT/TTS Domain Types (`pairion-core/src/main/java/com/pairion/core/stt|tts/`)
+
+**`SttEvent`** — sealed interface: `Partial(text: String)`, `Final(text: String, audioDurationMs: long)`
+**`SttCapabilities`** — record: `available: boolean`, `streaming: boolean`; static `unavailable()`
+**`TtsEvent`** — sealed interface: `Chunk(audio: byte[], isOpus: boolean)`, `Completed(totalDurationMs: long)`
+**`TtsCapabilities`** — record: `available: boolean`, `streaming: boolean`; static `unavailable()`
+
+---
+
+### Data Adapter Models (`pairion-adapters/src/main/java/com/pairion/adapters/data/`)
+
+**`AdsbAircraft`** — record with `@JsonInclude(NON_NULL)`
+- Fields: `icao24: String`, `callsign: String`, `lat: Double`, `lon: Double`, `altitudeFt: Double`, `speedKnots: Double`, `trackDeg: Double`, `verticalRateFpm: Double`, `onGround: boolean`, `registration: String`, `aircraftType: String`, `origin: String`, `destination: String`
+
+**`WeatherRadarSnapshot`** — record with `@JsonInclude(NON_NULL)`
+- Fields: `host: String`, `frames: List<WeatherRadarFrame>`, `latestPath: String`, `tileSize: int`, `colorScheme: int`, `options: String`
+
+**`WeatherCurrentSnapshot`** — record with `@JsonInclude(NON_NULL)`, imperial units
+- Fields: `city: String`, `temperatureF: double`, `feelsLikeF: double`, `highF: double`, `lowF: double`, `humidity: int`, `windSpeedMph: double`, `windDirectionDeg: int`, `conditions: String`, `precipitationIn: double`, `pressureMb: double`
+
+---
+
+### Agent Session Events (`pairion-agent/src/main/java/com/pairion/agent/session/AgentSessionEvent`)
+
+Sealed interface with 17 permitted record types: `StateChangeEvent`, `TranscriptPartialEvent`, `TranscriptFinalEvent`, `LlmTokenEvent`, `ToolCallStartedEvent`, `ToolCallCompletedEvent`, `AudioStreamStartEvent`, `AudioChunkEvent`, `AudioStreamEndEvent`, `MapFocusEvent`, `MapClearEvent`, `ConversationEndedEvent`, `BackgroundChangeEvent`, `OverlayAddEvent`, `OverlayRemoveEvent`, `OverlayClearEvent`, `SceneDataPushEvent`.
+
+---
+
+## 7. Enum / Constant Inventory
+
+**`AgentState`** (`pairion-core/src/main/java/com/pairion/core/agent/AgentState.java`)
+- Values: `IDLE("idle")`, `LISTENING("listening")`, `THINKING("thinking")`, `SPEAKING("speaking")`
+- Has wire value: YES — `wireValue()` returns the lowercase string for WebSocket messages
+- Serialization: custom wire value (not ordinal or name), used in `AgentStateChange` WS message
+- Used in: `AgentSession`, `AgentSessionEvent.StateChangeEvent`, `AgentStateChange` WS message
+
+No other enums detected. All other domain states use sealed interface records (LlmEvent, SttEvent, TtsEvent, WebSocketMessage subtypes).
+
+### Key string constants:
+- `PairionWebSocketHandler.SERVER_VERSION = "0.3.0"`
+- `WebSocketMessage` subtypes each define `TYPE` static String constants (e.g. `SessionOpened.TYPE`)
+- `MapFocusTool.TOOL_NAME = "focus_map"`, `SetBackgroundTool.TOOL_NAME = "set_background"`, etc.
+- `AdsbDataAdapter.METRES_TO_FEET = 3.28084`, `MS_TO_KNOTS = 1.94384`, `MS_TO_FPM = 196.850`
+- `AdsbEnrichmentService.METADATA_TTL_MS = 3600000` (1 hour), `ROUTE_TTL_MS = 1800000` (30 min)
+- `AdsbEnrichmentService.METADATA_RATE_LIMIT_MS = 500`, `ROUTE_RATE_LIMIT_MS = 500` (2 req/sec each)
+- `WhisperCppSttAdapter.PARTIAL_THROTTLE_MS = 200`
+- `PiperTtsAdapter.OPUS_SAMPLE_RATE = 16000`
+
+---
+
+## 8. Data Access / Repository Layer
+
+No repository layer. There is no database. The project uses in-memory data structures only.
+
+Data access is handled at the adapter layer via boundary interfaces:
+
+**`AdsbDataClient`** (interface) — boundary for OpenSky Network HTTP calls
+- `fetchStates(lamin, lomin, lamax, lomax): List<List<Object>>` — aircraft state vectors
+- `fetchMetadata(icao24): Optional<AircraftMetadata>` — registration + type code
+- `fetchRoute(callsign): Optional<RouteInfo>` — departure/destination airports
+- Implemented by: `HttpAdsbDataClient` (JaCoCo excluded — makes real HTTP calls)
+
+**`WeatherRadarDataClient`** (interface) — boundary for RainViewer API
+- `fetchSnapshot(): WeatherRadarSnapshot`
+- Implemented by: `HttpWeatherRadarDataClient` (JaCoCo excluded)
+
+**`WeatherCurrentDataClient`** (interface) — boundary for Open-Meteo API
+- `fetchSnapshot(city): WeatherCurrentSnapshot`
+- Implemented by: `HttpWeatherCurrentDataClient` (JaCoCo excluded)
+
+**In-memory state:**
+- `PairionWebSocketHandler.sessions: ConcurrentHashMap<String, AgentSession>` — active sessions keyed by WS session ID
+- `AdsbEnrichmentService.metadataCache: ConcurrentHashMap<String, CachedEntry<Optional<AircraftMetadata>>>` — TTL-cached metadata keyed by icao24
+- `AdsbEnrichmentService.routeCache: ConcurrentHashMap<String, CachedEntry<Optional<RouteInfo>>>` — TTL-cached route info keyed by callsign
+- `WhisperSttSession.pcmChunks: List<byte[]>` — PCM accumulator per audio stream
+
+---
+
+## 9. Service / Business Logic Layer — Full Method Signatures
+
+---
+
+### `AgentSession` (`pairion-agent/src/main/java/com/pairion/agent/session/AgentSession.java`)
+
+Dependencies: `SttAdapter`, `LlmAdapter`, `TtsAdapter`, `SoulPromptProvider`, `ToolDispatcher`, `AdsbDataAdapter` (nullable), `WeatherRadarDataAdapter` (nullable), `WeatherCurrentDataAdapter` (nullable), `Consumer<AgentSessionEvent>` (event sink)
+
+Public Methods:
+- `AgentSession(sessionId, sttAdapter, llmAdapter, ttsAdapter, soulProvider, toolDispatcher, adsbDataAdapter, weatherRadarDataAdapter, weatherCurrentDataAdapter, eventSink)` — constructor
+  - Purpose: Initializes per-session agent with all adapter dependencies and a scheduler for map auto-clear.
+- `onAudioStreamStart(streamId: String): void`
+  - Purpose: Allocates OpusDecoder and STT session, transitions state to LISTENING.
+- `onAudioChunk(frameData: byte[]): void`
+  - Purpose: Opus-decodes binary frame and feeds PCM to active STT session.
+- `onSpeechEnded(): void`
+  - Purpose: Records Stage A start time and finalizes STT session, triggering transcript.
+- `currentState(): AgentState`
+  - Purpose: Returns current agent processing state.
+- `close(): void`
+  - Purpose: Shuts down map-clear scheduler, stops ADS-B and weather radar polling. Call on WS close.
+- `activateDefaultOsmView(): void`
+  - Purpose: Emits BackgroundChangeEvent for OSM background centred on DFW (lat=32.86, lon=-97.04, zoom=10). Called on DeviceIdentify.
+- `activateAdsbRadar(): void`
+  - Purpose: Emits VFR background + ADS-B overlay events and starts AdsbDataAdapter polling.
+
+Package-private methods (for testing):
+- `emitTimedMapClear(): void` — emits MapClearEvent; extracted from scheduler lambda for testability
+- `handleSttEvent(SttEvent): void` — routes STT events, triggers onTranscriptFinal on Final
+- `handleLlmEvent(LlmEvent, StringBuilder, List<LlmEvent.ToolCallRequest>): void` — routes LLM stream events
+
+Private methods:
+- `onTranscriptFinal(transcript: String, stageAMs: long): void` — full turn loop: multi-round LLM + tool dispatch + TTS
+- `buildToolDefinitions(): List<ToolDefinition>` — constructs the 7 tool definitions
+- `synthesizeSpeech(text, stageAMs, stageBMs, stageCMs, stageDMs): void` — TTS + audio frame emission + latency logging
+- `emitMapFocus(result: Map<String,Object>): void`
+- `emitMapFocusFromWeather(result: Map<String,Object>): void`
+- `emitBackgroundChange(result: Map<String,Object>): void`
+- `emitOverlayAdd(result: Map<String,Object>): void`
+- `emitOverlayRemove(result: Map<String,Object>): void`
+- `emitOverlayClear(): void`
+- `transitionState(AgentState): void`
+- `isMapClearPhrase(transcript: String): boolean`
+- `isConversationEndPhrase(transcript: String): boolean`
+- `rescheduleClear(): void`, `cancelClear(): void`
+- `logLatency(stageAMs, stageBMs, stageCMs, stageDMs, stageEMs, stageFMs, stageTMs): void`
+- `logPartialLatency(stageAMs, stageBMs, stageCMs, stageDMs): void`
+- `toMs(nanos: long): long` — nanoseconds → milliseconds
+
+---
+
+### `ToolDispatcher` (`pairion-agent/src/main/java/com/pairion/agent/tools/ToolDispatcher.java`)
+
+Dependencies: `List<AgentTool>` (Spring list injection — all AgentTool beans)
+
+Public Methods:
+- `ToolDispatcher(tools: List<AgentTool>)`
+- `dispatch(toolName: String, input: Map<String,Object>): Map<String,Object>`
+  - Purpose: Routes LLM tool call by name to matching AgentTool; returns structured error if unknown.
+
+---
+
+### `AdsbDataAdapter` (`pairion-adapters/src/main/java/com/pairion/adapters/data/adsb/AdsbDataAdapter.java`)
+
+Dependencies: `AdsbDataClient`, `AdsbEnrichmentService`, `@Value` bbox coords + poll interval
+
+Public Methods:
+- `startPolling(sink: Consumer<List<AdsbAircraft>>): void` (synchronized) — starts daemon poller at configured interval
+- `stopPolling(): void` (synchronized) — cancels poller
+
+Package-private:
+- `poll(): void` — fetches states, parses, enriches, delivers to sink
+- `parseState(state: List<Object>): AdsbAircraft` — parses OpenSky state vector array
+
+Constants: `METRES_TO_FEET=3.28084`, `MS_TO_KNOTS=1.94384`, `MS_TO_FPM=196.850`
+
+---
+
+### `AdsbEnrichmentService` (`pairion-adapters/src/main/java/com/pairion/adapters/data/adsb/AdsbEnrichmentService.java`)
+
+Dependencies: `AdsbDataClient`, `Clock`
+
+Public Methods:
+- `enrich(aircraft: AdsbAircraft): AdsbAircraft`
+  - Purpose: Enriches with registration/type (metadata cache, 1h TTL) and origin/destination (route cache, 30min TTL). Rate-limited at 2 req/sec per type. Thread-safe.
+
+Package-private:
+- `getCachedMetadata(icao24: String): Optional<AircraftMetadata>`
+- `getCachedRoute(callsign: String): Optional<RouteInfo>`
+- `acquireMetadataRateLimit(): boolean`
+- `acquireRouteRateLimit(): boolean`
+
+---
+
+### `WeatherRadarDataAdapter` (`pairion-adapters/src/main/java/com/pairion/adapters/data/weatherradar/WeatherRadarDataAdapter.java`)
+
+Dependencies: `WeatherRadarDataClient`, `@Value` poll interval (default 300s)
+
+Public Methods:
+- `startPolling(sink: Consumer<WeatherRadarSnapshot>): void` (synchronized)
+- `stopPolling(): void` (synchronized)
+
+Package-private: `poll(): void`
+
+---
+
+### `WeatherCurrentDataAdapter` (`pairion-adapters/src/main/java/com/pairion/adapters/data/weathercurrent/WeatherCurrentDataAdapter.java`)
+
+Dependencies: `WeatherCurrentDataClient`
+
+Public Methods:
+- `start(city: String, sink: Consumer<WeatherCurrentSnapshot>): void`
+  - Purpose: Kicks off one-shot virtual thread fetch; does not block caller.
+
+Package-private: `fetch(city: String, sink: Consumer<WeatherCurrentSnapshot>): void`
+
+---
+
+### `ModelStartupService` (`pairion-gateway/src/main/java/com/pairion/gateway/startup/ModelStartupService.java`)
+
+Dependencies: `@Value piperVoice`, `ModelDownloader`
+
+Public Methods:
+- `onApplicationReady(): void` — `@EventListener(ApplicationReadyEvent.class)` — schedules model downloads on virtual threads
+
+Package-private:
+- `downloadWhisperModel(): void`
+- `downloadPiperModel(): void`
+- `resolveModelPath(pairionHome: String, category: String, filename: String): Path`
+
+---
+
+### `ModelDownloader` (`pairion-core/src/main/java/com/pairion/core/util/ModelDownloader.java`)
+
+Public Methods:
+- `download(url: String, targetPath: Path, expectedSha256: String): boolean`
+  - Purpose: Downloads file with SHA-256 verification; idempotent (skips if exists).
+
+Package-private:
+- `writeWithProgress(in: InputStream, target: Path, totalBytes: long): void`
+- `computeSha256(path: Path): String`
+- `getDigest(algorithm: String): MessageDigest`
+
+---
+
+### LLM Adapters
+
+**`AnthropicLlmAdapter`** (`@ConditionalOnProperty(llm=anthropic, matchIfMissing=true)`)
+- `name(): String` → "anthropic"
+- `capabilities(): LlmCapabilities`
+- `generate(request: LlmRequest, eventConsumer: Consumer<LlmEvent>): void`
+  - Calls `AnthropicClientWrapper.streamCompletion(...)`, emits TokenDelta/ToolCallRequest/Stop events
+
+**`OpenAiCompatLlmAdapter`** (`@ConditionalOnProperty(llm=openaicompat)`)
+- `name(): String` → "openaicompat"
+- `capabilities(): LlmCapabilities`
+- `generate(request: LlmRequest, eventConsumer: Consumer<LlmEvent>): void`
+  - Calls `OpenAiCompatClientWrapper.streamCompletion(...)` with configured baseUrl, apiKey, model
+
+---
+
+### STT Adapter
+
+**`WhisperCppSttAdapter`** (`@ConditionalOnProperty(stt=whispercpp, matchIfMissing=true)` + `@ConditionalOnBean(WhisperCppNative.class)`)
+- `name(): String` → "whispercpp"
+- `capabilities(): SttCapabilities`
+- `createSession(eventConsumer: Consumer<SttEvent>): SttSession` → returns `WhisperSttSession`
+
+Inner class `WhisperSttSession`:
+- `feedAudio(pcmData: byte[]): void` — accumulates PCM, throttled partial transcripts (200ms)
+- `finalizeStream(): void` — full Whisper transcription → SttEvent.Final
+- `pcmToFloat(pcm: byte[]): float[]` — 16-bit LE PCM → float32 [-1,1]
+
+---
+
+### TTS Adapter
+
+**`PiperTtsAdapter`** (`@ConditionalOnProperty(tts=piper, matchIfMissing=true)` + `@ConditionalOnBean(PiperTtsNative.class)`)
+- `name(): String` → "piper"
+- `capabilities(): TtsCapabilities`
+- `speak(text: String, eventConsumer: Consumer<TtsEvent>): void`
+  - Synthesizes via Piper native, resamples to 16 kHz, Opus-encodes in 20ms frames (320 samples), emits TtsEvent.Chunk + TtsEvent.Completed
+
+Private: `encodeChunk(...)`, `resample(pcm, fromRate, toRate): byte[]`
+
+---
+
+### SOUL Prompt
+
+**`DefaultSoulPromptProvider`** (`@Component`, implements `SoulPromptProvider`)
+- `getSystemPrompt(sessionId: String): String`
+  - Returns hardcoded placeholder system prompt (SOUL milestone is deferred). Prompt enforces English-only, no markdown, concise speech, all tool-calling rules.
+
+---
+
+## 10. Controller / Handler / Route Layer — Method Signatures Only
+
+---
+
+### `PairionWebSocketHandler` (`pairion-gateway/src/main/java/com/pairion/gateway/ws/PairionWebSocketHandler.java`)
+
+WebSocket endpoint: `/ws/v1` (raw WebSocket, not STOMP)
+Dependencies: `ObjectMapper`, `SttAdapter` (@Nullable), `LlmAdapter`, `TtsAdapter` (@Nullable), `SoulPromptProvider`, `ToolDispatcher`, `AdsbDataAdapter` (@Nullable), `WeatherRadarDataAdapter` (@Nullable), `WeatherCurrentDataAdapter` (@Nullable)
+
 Methods:
-  - fetchStates(lamin, lomin, lamax, lomax: double): List<List<Object>>
-    (calls https://opensky-network.org/api/states/all?lamin=...&lomin=...&lamax=...&lomax=...)
-  - fetchMetadata(icao24: String): Optional<AircraftMetadata>
-    (calls OpenSky aircraft metadata API)
-  - fetchRoute(callsign: String): Optional<RouteInfo>
-    (calls OpenSky route API)
-Nested records: AircraftMetadata(registration, typecode), RouteInfo(departureAirport, destinationAirport)
-HTTP Basic Auth via opensky-username/opensky-password config properties.
-```
-
-```
-=== WeatherRadarDataClient (file: pairion-adapters/.../data/weatherradar/WeatherRadarDataClient.java) ===
-Interface — production impl: HttpWeatherRadarDataClient (@Component, package-private)
-Methods:
-  - fetchSnapshot(): WeatherRadarSnapshot
-    (calls https://api.rainviewer.com/public/weather-maps.json, no auth)
-```
-
-In-memory enrichment cache in `AdsbEnrichmentService`: `ConcurrentHashMap` keyed by icao24 (metadata) and callsign (routes), with 1-hour and 30-minute TTLs respectively. Rate-limited at 2 calls/sec each bucket.
+- `afterConnectionEstablished(session: WebSocketSession): void` → logs connection
+- `handleTextMessage(session, message: TextMessage): void` → deserializes + dispatches to DeviceIdentify/HeartbeatPing/AudioStreamStart/SpeechEnded handlers
+- `handleBinaryMessage(session, message: BinaryMessage): void` → routes to `agentSession.onAudioChunk()`
+- `afterConnectionClosed(session, status: CloseStatus): void` → removes session, calls `agentSession.close()`
+- `handleDeviceIdentify(session, identify: DeviceIdentify): void throws Exception` → creates AgentSession, calls `activateDefaultOsmView()`, sends SessionOpened
+- `handleHeartbeatPing(session, ping: HeartbeatPing): void throws Exception` → sends HeartbeatPong
+- `handleAudioStreamStart(session, streamStart: AudioStreamStart): void` → delegates to agentSession
+- `handleSpeechEnded(session: WebSocketSession): void` → delegates to agentSession
+- `sendAgentEvent(session, event: AgentSessionEvent): void` → AudioChunkEvent → binary frame; all others → JSON text frame
+- `serializeEvent(event: AgentSessionEvent): String throws Exception` → maps AgentSessionEvent subtypes to WS message JSON
 
 ---
 
-### 9. Service / Business Logic Layer — Full Method Signatures
+### `HealthController` (`pairion-gateway/src/main/java/com/pairion/gateway/rest/HealthController.java`)
 
-```
-=== AgentSession (file: pairion-agent/.../session/AgentSession.java) ===
-Dependencies: SttAdapter, LlmAdapter, TtsAdapter, SoulPromptProvider, ToolDispatcher,
-              AdsbDataAdapter, WeatherRadarDataAdapter, Consumer<AgentSessionEvent>
-Lifecycle: one instance per WebSocket session; NOT a Spring bean (constructed in handler)
-
-Public Methods:
-  - onAudioStreamStart(streamId: String): void
-    Purpose: Allocates Opus decoder and STT session; transitions state to LISTENING
-    Calls: OpusDecoder.create(), sttAdapter.createSession()
-    Transactional: NO
-
-  - onAudioChunk(frameData: byte[]): void
-    Purpose: Decodes Opus audio and feeds PCM to STT session
-    Calls: opusDecoder.decode(), sttSession.feedAudio()
-    Transactional: NO
-
-  - onSpeechEnded(): void
-    Purpose: Finalizes STT stream; triggers transcript → LLM → TTS turn loop
-    Calls: sttSession.finalizeStream()
-    Transactional: NO
-
-  - currentState(): AgentState
-    Purpose: Returns current state enum value
-
-  - close(): void
-    Purpose: Cancels map-clear timer, shuts down scheduler, stops polling adapters
-    Calls: adsbDataAdapter.stopPolling(), weatherRadarDataAdapter.stopPolling()
-    Transactional: NO
-
-  - activateDefaultOsmView(): void
-    Purpose: Emits BackgroundChangeEvent("osm") with DFW center at zoom 10 on session start
-    Calls: eventSink.accept()
-
-  - activateAdsbRadar(): void
-    Purpose: Emits BackgroundChange("vfr") + OverlayAdd("adsb") and starts ADS-B polling
-    Calls: adsbDataAdapter.startPolling()
-
-Package-private / Internal Methods (signatures only):
-  handleSttEvent(event: SttEvent): void
-  handleLlmEvent(event: LlmEvent, textAccumulator: StringBuilder, toolCallAccumulator: List<ToolCallRequest>): void
-  emitTimedMapClear(): void
-  onTranscriptFinal(transcript: String, stageAMs: long): void
-  synthesizeSpeech(text: String, stageAMs/B/C/D: long): void
-  buildToolDefinitions(): List<ToolDefinition>
-  emitMapFocus, emitMapFocusFromWeather, emitBackgroundChange, emitOverlayAdd,
-  emitOverlayRemove, emitOverlayClear, emitAdsbRadar (all take Map<String,Object> result)
-```
-
-```
-=== ToolDispatcher (file: pairion-agent/.../tools/ToolDispatcher.java) ===
-Dependencies: List<AgentTool> (Spring list injection — all @Component AgentTool beans)
-
-Public Methods:
-  - dispatch(toolName: String, input: Map<String,Object>): Map<String,Object>
-    Purpose: Routes tool call to matching AgentTool by name; returns error map if unknown
-    Calls: AgentTool.execute(input)
-    Throws/Returns errors: never throws — returns {error: "unknown_tool"} or {error: "tool_execution_failed"}
-    Transactional: NO
-```
-
-```
-=== AdsbDataAdapter (file: pairion-adapters/.../data/adsb/AdsbDataAdapter.java) ===
-Dependencies: AdsbDataClient, AdsbEnrichmentService; config @Value properties for bbox/interval
-
-Public Methods:
-  - startPolling(sink: Consumer<List<AdsbAircraft>>): void [synchronized]
-    Purpose: Starts scheduled polling; replaces any existing consumer
-    Calls: AdsbDataClient.fetchStates(), AdsbEnrichmentService.enrich()
-    Transactional: NO
-  - stopPolling(): void [synchronized]
-    Purpose: Cancels future, shuts down scheduler, clears sink
-    Transactional: NO
-
-Package-private:
-  poll(): void
-  parseState(state: List<Object>): AdsbAircraft (returns null if no position)
-```
-
-```
-=== AdsbEnrichmentService (file: pairion-adapters/.../data/adsb/AdsbEnrichmentService.java) ===
-Dependencies: AdsbDataClient, Clock (for TTL and rate-limit decisions)
-
-Public Methods:
-  - enrich(aircraft: AdsbAircraft): AdsbAircraft
-    Purpose: Enriches aircraft with registration/type/route from cache or rate-limited API calls
-    Calls: AdsbDataClient.fetchMetadata(), AdsbDataClient.fetchRoute()
-    Transactional: NO
-
-Package-private:
-  getCachedMetadata(icao24: String): Optional<AircraftMetadata>
-  getCachedRoute(callsign: String): Optional<RouteInfo>
-  acquireMetadataRateLimit(): boolean (CAS on AtomicLong)
-  acquireRouteRateLimit(): boolean
-```
-
-```
-=== WeatherRadarDataAdapter (file: pairion-adapters/.../data/weatherradar/WeatherRadarDataAdapter.java) ===
-Dependencies: WeatherRadarDataClient, pollIntervalSeconds from config
-
-Public Methods:
-  - startPolling(sink: Consumer<WeatherRadarSnapshot>): void [synchronized]
-    Purpose: Starts scheduled polling of RainViewer API
-    Transactional: NO
-  - stopPolling(): void [synchronized]
-    Purpose: Cancels future, shuts down scheduler
-
-Package-private:
-  poll(): void
-```
-
-```
-=== DefaultSoulPromptProvider (file: pairion-agent/.../soul/DefaultSoulPromptProvider.java) ===
-Dependencies: none (placeholder implementation)
-
-Public Methods:
-  - getSystemPrompt(sessionId: String): String
-    Purpose: Returns hardcoded SOUL system prompt (placeholder — full SOUL is a later milestone)
-    NOTE: Documented as placeholder throughout; BLOCKING technical debt — see Section 21
-```
-
-```
-=== ModelStartupService (file: pairion-gateway/.../startup/ModelStartupService.java) ===
-Dependencies: piperVoice (@Value), ModelDownloader
-
-Public Methods:
-  - onApplicationReady(): void [@EventListener(ApplicationReadyEvent.class)]
-    Purpose: Triggers idempotent model downloads on virtual threads
-    Calls: ModelDownloader.download() for Whisper and Piper models
-
-Package-private:
-  downloadWhisperModel(): void
-  downloadPiperModel(): void
-  resolveModelPath(pairionHome: String, category: String, filename: String): Path
-```
-
-```
-=== OpenMeteoWeatherTool (file: pairion-agent/.../tools/weather/OpenMeteoWeatherTool.java) ===
-Implements: AgentTool
-
-Public Methods:
-  - name(): String → "get_current_weather"
-  - execute(input: Map<String,Object>): Map<String,Object>
-    Purpose: Geocodes city via Open-Meteo geocoding API, then fetches current conditions
-    External calls: geocoding-api.open-meteo.com, api.open-meteo.com (no API key required)
-    Returns: {city, temperature_f, conditions, wind_speed_mph, latitude, longitude}
-
-Package-private static:
-  describeWeatherCode(code: int): String (WMO code → human-readable string)
-```
-
-```
-=== MapFocusTool (file: pairion-agent/.../tools/map/MapFocusTool.java) ===
-Implements: AgentTool
-
-Public Methods:
-  - name(): String → "focus_map"
-  - execute(input: Map<String,Object>): Map<String,Object>
-    Purpose: Geocodes location via Open-Meteo geocoding API and returns lat/lon/label/zoom
-    External calls: geocoding-api.open-meteo.com
-    Returns: {lat, lon, label, zoom, status} or {error, message}
-```
-
-```
-=== SetBackgroundTool / AddOverlayTool / RemoveOverlayTool / ClearOverlaysTool / ShowAdsbRadarTool ===
-All implement: AgentTool
-All are pure result-map builders — no external HTTP calls.
-  SetBackgroundTool.execute()  → validates background_id, returns {status, background_id, transition}
-  AddOverlayTool.execute()     → validates overlay_id, returns {status, overlay_id[, params]}
-  RemoveOverlayTool.execute()  → validates overlay_id, returns {status, overlay_id}
-  ClearOverlaysTool.execute()  → returns {status: "overlays_cleared"}
-  ShowAdsbRadarTool.execute()  → returns {status: "adsb_radar_activated", background_id: "vfr", overlay_id: "adsb"}
-```
-
-```
-=== AnthropicLlmAdapter (file: pairion-adapters/.../llm/anthropic/AnthropicLlmAdapter.java) ===
-Dependencies: AnthropicClientWrapper, defaultModel (@Value)
-@ConditionalOnProperty(name = "pairion.adapters.llm", havingValue = "anthropic", matchIfMissing = true)
-
-Public Methods:
-  - name(): String → "anthropic"
-  - capabilities(): LlmCapabilities (reflects API key availability)
-  - generate(request: LlmRequest, eventConsumer: Consumer<LlmEvent>): void
-    Purpose: Calls Anthropic Messages API, emits streaming LlmEvent tokens/tool calls/stop
-    Calls: AnthropicClientWrapper.streamCompletion()
-    Transactional: NO
-```
+Base path: `/v1`
+- `getHealth(): ResponseEntity<Map<String,String>>` — `GET /v1/health`
+- `getVersion(): ResponseEntity<Map<String,String>>` — `GET /v1/version`
 
 ---
 
-### 10. Controller / Handler / Route Layer — Method Signatures Only
+### `AdapterController` (`pairion-gateway/src/main/java/com/pairion/gateway/rest/AdapterController.java`)
 
-```
-=== HealthController (file: pairion-gateway/.../rest/HealthController.java) ===
-Base Path: /v1
-Dependencies: none
-
-Endpoints:
-  - getHealth() → ResponseEntity<Map<String,String>> (inline response)
-  - getVersion() → ResponseEntity<Map<String,String>> (inline response)
-```
-
-```
-=== AdapterController (file: pairion-gateway/.../rest/AdapterController.java) ===
-Base Path: /v1/adapters
-Dependencies: none (stub implementation — M0)
-
-Endpoints:
-  - listAdapters() → ResponseEntity<List<Object>>   (returns empty list)
-  - getAdapter(category, name) → ResponseEntity<Map<String,Object>> (returns stub map)
-```
-
-```
-=== HouseholdController (file: pairion-gateway/.../rest/HouseholdController.java) ===
-Base Path: /v1/household
-Dependencies: none (stub implementation — M0)
-
-Endpoints:
-  - getHousehold() → ResponseEntity<Map<String,Object>>
-  - listUsers() → ResponseEntity<List<Object>>
-  - createUser(@RequestBody Map) → ResponseEntity<Map<String,Object>> (201 Created)
-  - getUser(userId) → ResponseEntity<Map<String,Object>>
-  - deleteUser(userId) → ResponseEntity<Void> (204 No Content)
-```
-
-```
-=== LogController (file: pairion-gateway/.../rest/LogController.java) ===
-Base Path: /v1/logs
-Dependencies: SLF4J Logger
-
-Endpoints:
-  - postLogs(@RequestBody List<Map<String,Object>>) → ResponseEntity<Void> (204)
-    (forwards client log records through server Logback pipeline)
-```
-
-```
-=== MemoryController (file: pairion-gateway/.../rest/MemoryController.java) ===
-Base Path: /v1/memory
-Dependencies: none (stub — M0)
-
-Endpoints:
-  - listEpisodes(userId, limit=50) → ResponseEntity<List<Object>> (returns empty list)
-```
-
-```
-=== SkillController (file: pairion-gateway/.../rest/SkillController.java) ===
-Base Path: /v1/skills
-Dependencies: none (stub — M0)
-
-Endpoints:
-  - listSkills() → ResponseEntity<List<Object>>
-  - getSkill(skillId) → ResponseEntity<Map<String,Object>> (returns stub)
-```
-
-```
-=== PairionWebSocketHandler (file: pairion-gateway/.../ws/PairionWebSocketHandler.java) ===
-Base Path: /ws/v1
-Extends: AbstractWebSocketHandler
-Dependencies: ObjectMapper, SttAdapter, LlmAdapter, TtsAdapter, SoulPromptProvider,
-              ToolDispatcher, AdsbDataAdapter, WeatherRadarDataAdapter
-
-Endpoints/Handlers:
-  - afterConnectionEstablished(session) → logs connection
-  - handleTextMessage(session, message) → dispatches to DeviceIdentify, HeartbeatPing,
-    AudioStreamStart, SpeechEnded handlers
-  - handleBinaryMessage(session, message) → routes to agentSession.onAudioChunk()
-  - afterConnectionClosed(session, status) → cleans up agentSession
-
-Package-private helpers (tested directly):
-  handleDeviceIdentify(), handleHeartbeatPing(), handleAudioStreamStart(), handleSpeechEnded()
-  sendAgentEvent(), serializeEvent()
-```
+Base path: `/v1/adapters` — **STUB responses in M0**
+- `listAdapters(): ResponseEntity<List<Object>>` — `GET /v1/adapters` → empty list
+- `getAdapter(category, name): ResponseEntity<Map<String,Object>>` — `GET /v1/adapters/{category}/{name}` → stub
 
 ---
 
-### 11. Security Configuration
+### `HouseholdController` (`pairion-gateway/src/main/java/com/pairion/gateway/rest/HouseholdController.java`)
+
+Base path: `/v1/household` — **STUB responses in M0**
+- `getHousehold(): ResponseEntity<Map<String,Object>>` — `GET /v1/household`
+- `listUsers(): ResponseEntity<List<Object>>` — `GET /v1/household/users`
+- `createUser(body: Map<String,Object>): ResponseEntity<Map<String,Object>>` — `POST /v1/household/users` → 201
+- `getUser(userId): ResponseEntity<Map<String,Object>>` — `GET /v1/household/users/{userId}`
+- `deleteUser(userId): ResponseEntity<Void>` — `DELETE /v1/household/users/{userId}` → 204
+
+---
+
+### `MemoryController` (`pairion-gateway/src/main/java/com/pairion/gateway/rest/MemoryController.java`)
+
+Base path: `/v1/memory` — **STUB responses in M0**
+- `listEpisodes(userId: String, limit: int): ResponseEntity<List<Object>>` — `GET /v1/memory/episodes` → empty list
+
+---
+
+### `SkillController` (`pairion-gateway/src/main/java/com/pairion/gateway/rest/SkillController.java`)
+
+Base path: `/v1/skills` — **STUB responses in M0**
+- `listSkills(): ResponseEntity<List<Object>>` — `GET /v1/skills` → empty list
+- `getSkill(skillId): ResponseEntity<Map<String,Object>>` — `GET /v1/skills/{skillId}` → stub
+
+---
+
+### `LogController` (`pairion-gateway/src/main/java/com/pairion/gateway/rest/LogController.java`)
+
+Base path: `/v1/logs`
+- `postLogs(records: List<Map<String,Object>>): ResponseEntity<Void>` — `POST /v1/logs` → 204; forwards each record through Logback at INFO level
+
+---
+
+## 11. Security Configuration
+
+No Spring Security dependency detected. The server has no authentication or authorization layer.
 
 ```
-Authentication: None — no authentication or authorization layer.
-Token issuer/validator: N/A
-Password hashing: N/A
+Authentication:    None
+Token issuer:      N/A
+Password hashing:  N/A
 
-Public endpoints (no auth required):
-  - ALL endpoints are public — no authentication configured.
+Public endpoints (all unauthenticated):
   - GET  /v1/health
   - GET  /v1/version
   - GET  /v1/adapters
@@ -585,223 +661,311 @@ Public endpoints (no auth required):
   - POST /v1/logs
   - WS   /ws/v1
 
-Protected endpoints: None
+Protected endpoints: None — all endpoints are open
 
-CORS: setAllowedOrigins("*") on /ws/v1 — no CORS restriction configured.
+CORS: WebSocket handler registered with setAllowedOrigins("*") — all origins permitted
+      No global CORS filter configured for REST endpoints.
 
-CSRF: Disabled (not configured). Spring Security is not on the classpath.
+CSRF: Disabled (no Spring Security; stateless WebSocket protocol)
 
-Rate limiting: None at API level. AdsbEnrichmentService has internal rate limiting
-               for OpenSky API calls (2 calls/sec per bucket). No HTTP-level rate limiting.
+Rate limiting: None implemented
 ```
 
-**OBSERVATION:** No authentication or authorization is implemented. This is expected for M0/M1 development milestone on a LAN-only device (household AI), but must be addressed before any network-exposed deployment. Flag for architect review.
+**Security mitigations present:**
+- `ApiKeyRedactionFilter` (Logback TurboFilter): redacts `sk-ant-[A-Za-z0-9_-]+` patterns from all log messages before any appender
 
 ---
 
-### 12. Custom Security Components
+## 12. Custom Security Components
 
-```
-=== ApiKeyRedactionFilter (file: pairion-gateway/.../config/ApiKeyRedactionFilter.java) ===
-Type: Logback TurboFilter (registered in logback-spring.xml)
-Purpose: Prevents Anthropic API key patterns from reaching any log appender
-Extracts credentials from: log message format string and parameters
-Validates via: Pattern.compile("sk-ant-[A-Za-z0-9_\\-]+") regex match
-Sets user context: NO — denies the log event before any appender processes it
-```
+**`ApiKeyRedactionFilter`** (`pairion-gateway/src/main/java/com/pairion/gateway/config/ApiKeyRedactionFilter.java`)
+- Type: Logback TurboFilter (not an HTTP filter)
+- Purpose: Prevents Anthropic API key values from appearing in any log appender output
+- Pattern matched: `sk-ant-[A-Za-z0-9_-]+`
+- Applied to: format string and all message parameters
+- Action on match: `FilterReply.DENY` — event blocked from all appenders
+- Registered in: `logback-spring.xml` (confirmed via logback config)
 
-No HTTP authentication filter, JWT validator, session guard, or authorization interceptor exists. The project uses no Spring Security configuration.
-
----
-
-### 13. Exception / Error Handling
-
-No global `@ControllerAdvice` or `@ExceptionHandler` exists. Error handling is ad-hoc at the call site.
-
-```
-=== No GlobalErrorHandler ===
-Mechanism: None — no centralized exception handler registered.
-
-Per-component handling:
-  - ToolDispatcher.dispatch():  catches Exception from tool.execute(), returns
-    {error: "tool_execution_failed", message: e.getMessage()} structured map to LLM
-  - AgentSession.synthesizeSpeech(): catches Exception from ttsAdapter.speak(),
-    logs error, sets endReason="error", emits AudioStreamEndEvent
-  - AdsbDataAdapter.poll():  catches Exception, logs warning, returns silently
-  - AdsbEnrichmentService.fetchMetadata/fetchRoute():  catches Exception, logs warning, returns null
-  - WeatherRadarDataAdapter.poll():  catches Exception, logs warning, returns silently
-  - PairionWebSocketHandler.sendAgentEvent():  catches Exception, logs error
-
-REST error format: No standard error response body — Spring Boot's default /error page applies.
-WebSocket error format: No structured ErrorMessage sent on unhandled exceptions.
-```
-
-**OBSERVATION:** Missing `@ControllerAdvice` means REST errors return Spring Boot's default Whitelabel error page rather than a structured JSON body. This is acceptable at M0 for stub endpoints but should be addressed before real endpoint implementation.
+No custom HTTP authentication middleware, Spring Security filters, or JWT validators. No `UserLookupService` — the application has no concept of authenticated users at runtime.
 
 ---
 
-### 14. Mappers / Data Transformation
+## 13. Exception / Error Handling
 
-No dedicated mapper layer. No MapStruct or similar framework.
+No `@ControllerAdvice` or global exception handler is present. Error handling is localized:
 
-Data transformation is done inline:
-- **OpenSky state vector → AdsbAircraft**: `AdsbDataAdapter.parseState(List<Object>)` — positional array parsing with unit conversion (metres→feet, m/s→knots, m/s→fpm) and coordinate rounding.
-- **AgentSessionEvent → WebSocket record**: `PairionWebSocketHandler.serializeEvent()` — sealed-interface switch mapping each event subtype to its corresponding `WebSocketMessage` record, then Jackson serializes to JSON.
-- **LLM tool call → Map<String,Object>**: Each AgentTool returns a Map directly consumed by AgentSession for side-effect dispatch.
-- **Jackson**: Used throughout for JSON serialization/deserialization. `WebSocketMessage` uses `@JsonTypeInfo`/`@JsonSubTypes` for polymorphic type discrimination on the `type` field.
+**REST layer:**
+- Spring Boot's default `BasicErrorController` handles unhandled exceptions → standard Spring error response format
+- No custom error response format is defined
+- Controllers return `ResponseEntity` with explicit status codes; no exceptions are thrown
+
+**WebSocket layer:**
+- `PairionWebSocketHandler.handleTextMessage()` — Jackson deserialization errors propagate to Spring's WS exception handler (no override)
+- `PairionWebSocketHandler.sendAgentEvent()` — try/catch logs `log.error("Failed to send agent event: ...")` and swallows the exception
+- `AgentSession.synthesizeSpeech()` — try/catch on TTS, logs error, sets `endReason = "error"`, emits AudioStreamEnd
+
+**Adapter / tool layer:**
+- `ToolDispatcher.dispatch()` — try/catch: returns `Map.of("error", "tool_execution_failed", "message", e.getMessage())`; unknown tool returns `Map.of("error", "unknown_tool", ...)`
+- `AdsbDataAdapter.poll()` — try/catch logs `log.warn("adsb.poll.error: ...")` and returns silently
+- `WeatherRadarDataAdapter.poll()` — same pattern
+- `WeatherCurrentDataAdapter.fetch()` — try/catch logs `log.warn("weather.current.fetch.error: ...")` and does NOT call sink
+
+**Standard error response format (Spring Boot default):**
+```json
+{
+  "timestamp": "...",
+  "status": 500,
+  "error": "Internal Server Error",
+  "path": "/v1/..."
+}
+```
+
+**Gap:** No `@ControllerAdvice` — REST error responses are non-uniform Spring Boot defaults.
 
 ---
 
-### 15. Utility Modules & Shared Components
+## 14. Mappers / Data Transformation
 
-```
-=== MarkdownStripper (file: pairion-agent/.../util/MarkdownStripper.java) ===
+No dedicated mapper framework (no MapStruct, no AutoMapper). All data transformation is manual.
+
+**Transformations present:**
+
+- `AdsbDataAdapter.parseState(List<Object>): AdsbAircraft` — OpenSky state vector (positional array) → AdsbAircraft record; unit conversions: metres→feet, m/s→knots, m/s→fpm; coordinates rounded to 5 decimal places
+- `PiperTtsAdapter.resample(byte[], fromRate, toRate): byte[]` — linear interpolation PCM resampling from Piper native rate to 16 kHz
+- `WhisperSttSession.pcmToFloat(byte[]): float[]` — 16-bit signed LE PCM → float32 normalized to [-1,1]
+- `PairionWebSocketHandler.serializeEvent(AgentSessionEvent): String` — AgentSessionEvent sealed type → WS protocol JSON via switch + ObjectMapper.writeValueAsString()
+- `MarkdownStripper.strip(String): String` — LLM markdown text → TTS-safe plain prose (regex pipeline: links, headings, blockquotes, bold, italic, backticks, whitespace collapse)
+
+**Jackson configuration:** Default Spring Boot ObjectMapper; `@JsonTypeInfo`/`@JsonSubTypes` on `WebSocketMessage` for polymorphic deserialization; `@JsonInclude(NON_NULL)` on `AdsbAircraft`, `WeatherRadarSnapshot`, `WeatherCurrentSnapshot`
+
+---
+
+## 15. Utility Modules & Shared Components
+
+---
+
+### `MarkdownStripper` (`pairion-agent/src/main/java/com/pairion/agent/util/MarkdownStripper.java`)
+
+Pure utility class (final, no-arg constructor private).
+
 Functions:
-  - strip(text: String): String — static utility; strips markdown for TTS synthesis
-    Operations: link unwrapping, horizontal-rule removal, heading markers, blockquotes,
-                bold (**), italic (*), backticks, whitespace collapse. Returns "" for null/blank.
-Used by: AgentSession.onTranscriptFinal() (before TTS synthesis)
-```
-
-```
-=== ModelDownloader (file: pairion-core/.../util/ModelDownloader.java) ===
-Functions:
-  - download(url: String, targetPath: Path, expectedSha256: String): boolean
-    Downloads file if not already present; verifies SHA-256; returns true on success.
-Used by: ModelStartupService (downloads Whisper and Piper models on startup)
-```
-
-```
-=== LibraryLoader — two copies ===
-  pairion-adapters/.../stt/whispercpp/LibraryLoader.java
-  pairion-adapters/.../tts/piper/LibraryLoader.java
-Both extract native library from classpath JAR to a temp directory and call System.load().
-Used by: DefaultWhisperCppNative, DefaultPiperTtsNative respectively.
-```
+- `strip(text: String): String` — strips markdown formatting for TTS synthesis
+  - Removes: links `[text](url)→text`, `---`/`***` rules, `#` headings, `>` blockquotes, `**` bold, `*` italic, `` ` `` backticks; collapses whitespace; trims; null/blank → ""
+  - Used by: `AgentSession.onTranscriptFinal()`
 
 ---
 
-### 16. Database Schema (Live)
+### `ModelDownloader` (`pairion-core/src/main/java/com/pairion/core/util/ModelDownloader.java`)
 
-No database is configured or running. Pairion-Server has no persistence layer in the current milestone. All state is held in-memory per WebSocket session. The `pairion-household`, `pairion-memory`, and `pairion-skills` modules are placeholder stubs with no entity classes.
-
-Database not available for live schema check — none configured.
-
----
-
-### 17. Message Broker Configuration
-
-No message broker detected. RabbitMQ, Kafka, NATS, SQS, or any other broker is absent from dependencies and configuration. Inter-component communication uses in-process Java consumers (`Consumer<T>` lambdas) and a single `ConcurrentHashMap` for WebSocket session management.
+- `download(url: String, targetPath: Path, expectedSha256: String): boolean`
+  - Idempotent (skips if file exists); SHA-256 verified; logs progress at 10% intervals
+  - Used by: `ModelStartupService`
+- `writeWithProgress(InputStream, Path, long): void`
+- `computeSha256(Path): String`
+- `getDigest(algorithm: String): MessageDigest`
 
 ---
 
-### 18. Cache Layer
+### `NativeLibraryLoader` (`pairion-native-whisper/src/main/java/com/pairion/nativelib/whisper/NativeLibraryLoader.java`)
 
-No external cache (Redis, Memcached, Caffeine, EhCache) is configured.
+Loads whisper.cpp native shared library from classpath or `$PAIRION_HOME/lib/`. Used by `DefaultWhisperCppNative`.
 
-In-memory caching in `AdsbEnrichmentService`:
+---
+
+### `LibraryLoader` (STT + TTS — two copies)
+
+- `pairion-adapters/src/main/java/com/pairion/adapters/stt/whispercpp/LibraryLoader.java`
+- `pairion-adapters/src/main/java/com/pairion/adapters/tts/piper/LibraryLoader.java`
+
+Interface boundary injected into `DefaultWhisperCppNative` / `DefaultPiperTtsNative` for testability of library loading logic.
+
+---
+
+### SPI Placeholder Interfaces (no implementations)
+
+| Interface | Package | Status |
+|---|---|---|
+| `EmbeddingAdapter` | adapters.embedding.spi | SPI only — no implementation |
+| `VadAdapter` | adapters.vad.spi | SPI only — no implementation |
+| `VectorStoreAdapter` | adapters.vectorstore.spi | SPI only — no implementation |
+| `VoiceIdAdapter` | adapters.voiceid.spi | SPI only — no implementation |
+| `WakeAdapter` | adapters.wake.spi | SPI only — no implementation |
+
+These are future-milestone SPIs; no beans are registered for them.
+
+---
+
+## 16. Database Schema (Live)
+
+**No database.** The application uses no SQL or NoSQL database. All state is in-memory and session-scoped.
+
 ```
-Cache Provider: In-memory (ConcurrentHashMap, JVM heap)
-Connection: N/A — in-process
-
-Cache Regions/Keys:
-  - metadataCache (ConcurrentHashMap<String, CachedEntry<Optional<AircraftMetadata>>>)
-    TTL: 1 hour (METADATA_TTL_MS)
-    Key pattern: icao24 hex string
-    Used by: AdsbEnrichmentService.enrich()
-  - routeCache (ConcurrentHashMap<String, CachedEntry<Optional<RouteInfo>>>)
-    TTL: 30 minutes (ROUTE_TTL_MS)
-    Key pattern: callsign string (trimmed)
-    Used by: AdsbEnrichmentService.enrich()
-
-Cache Operations:
-  - Read-through on enrich() — cache miss triggers (rate-limited) API call
-  - Negative sentinel caching — Optional.empty() is cached to avoid re-querying unknown aircraft
-  - No explicit eviction (entries expire by TTL check on read; no background eviction)
-  - No size bound — could grow unbounded over very long sessions
+Database: None
+Persistence: None
+Schema: N/A
+ORM: None (no Hibernate, no JPA, no Flyway)
 ```
+
+All domain state is held in:
+- `ConcurrentHashMap<String, AgentSession>` — active WS sessions (PairionWebSocketHandler)
+- `ConcurrentHashMap` caches in `AdsbEnrichmentService` — TTL-gated metadata and route lookups
+- `List<byte[]>` PCM accumulator in `WhisperSttSession` — per audio stream, discarded on finalize
 
 ---
 
-### 19. Environment Variable Inventory
+## 17. Message Broker Configuration
+
+**No message broker.** No AMQP, Kafka, NATS, SQS, or any other message broker is used. All inter-component communication is synchronous in-process Java method calls or `Consumer<T>` callbacks.
+
+The WebSocket protocol (`/ws/v1`) is the only message-passing mechanism, and it operates directly over Spring WebSocket sessions.
+
+---
+
+## 18. Cache Layer
+
+**No distributed or managed cache.** In-process TTL caching only.
+
+**`AdsbEnrichmentService` — in-memory TTL caches:**
+```
+Cache: metadataCache (ConcurrentHashMap<String, CachedEntry<Optional<AircraftMetadata>>>)
+  Key:    icao24 (hex string)
+  TTL:    1 hour (METADATA_TTL_MS = 3600000)
+  Write:  on fetchMetadata() success (positive and negative sentinels cached)
+  Evict:  TTL expiry on next access (lazy eviction)
+  Used by: AdsbEnrichmentService.enrich()
+
+Cache: routeCache (ConcurrentHashMap<String, CachedEntry<Optional<RouteInfo>>>)
+  Key:    callsign (trimmed)
+  TTL:    30 minutes (ROUTE_TTL_MS = 1800000)
+  Write:  on fetchRoute() success
+  Evict:  TTL expiry on next access
+  Used by: AdsbEnrichmentService.enrich()
+```
+
+Both caches grow unboundedly (no maximum size); in practice bounded by airspace traffic during active sessions. No Spring `@Cacheable` or Caffeine/EhCache is used.
+
+---
+
+## 19. Environment Variable Inventory
 
 | Variable | Used In | Default | Required in Prod |
-|----------|---------|---------|-----------------|
-| `ANTHROPIC_API_KEY` | `DefaultAnthropicClientWrapper` (`System.getenv`) | none | YES (when llm=anthropic) |
-| `PAIRION_HOME` | `ModelStartupService`, `DefaultPiperTtsNative`, `DefaultWhisperCppNative` (`System.getenv`) | `~/.pairion` | NO (falls back to home dir) |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | `DefaultAnthropicClientWrapper` (SDK auto-reads) | (none) | YES (if llm=anthropic) |
+| `OPENSKY_USERNAME` | `application.yml` → `HttpAdsbDataClient` | "" (empty) | NO — increases rate limits if set |
+| `OPENSKY_PASSWORD` | `application.yml` → `HttpAdsbDataClient` | "" (empty) | NO |
+| `PAIRION_HOME` | `ModelStartupService.resolveModelPath()`, `NativeLibraryLoader` | `~/.pairion` | NO — fallback to `~/.pairion` |
+| `pairion.adapters.llm` | `application.yml` (Spring property) | `anthropic` (bean default) | NO — defaults to Anthropic |
+| `pairion.adapters.openaicompat.baseUrl` | `application.yml` | `http://localhost:1234/v1` | NO |
+| `pairion.adapters.openaicompat.model` | `application.yml` | `gpt-4o-mini` | NO |
+| `pairion.adapters.openaicompat.apiKey` | `application.yml` | "" | NO |
+| `pairion.adapters.llm.anthropic.model` | `AnthropicLlmAdapter @Value` | `claude-sonnet-4-6` | NO |
 
-**Config-property credentials (application.yml — NOT environment variables):**
-
-| Property | Value | Issue |
-|----------|-------|-------|
-| `pairion.data.adsb.opensky-username` | `aallard` | Hardcoded in application.yml — CRITICAL |
-| `pairion.data.adsb.opensky-password` | `Annabelle01*` | **Hardcoded plaintext password in application.yml** — CRITICAL |
-
-**NOTE:** The OpenSky Network username and password are committed in plaintext to `application.yml`. This is a critical credential exposure. These must be moved to environment variables.
-
----
-
-### 20. Service Dependency Map
-
-```
-Pairion-Server → Depends On (External)
--------------------------------------------
-Anthropic Claude API:    api.anthropic.com:443 — LLM generation (ANTHROPIC_API_KEY)
-LM Studio (optional):   localhost:1234/v1 — OpenAI-compatible LLM (when llm=openaicompat)
-OpenSky Network:        opensky-network.org — ADS-B aircraft state vectors + metadata + routes
-                        (HTTP Basic Auth: opensky-username/opensky-password)
-Open-Meteo Geocoding:   geocoding-api.open-meteo.com — location name → lat/lon
-Open-Meteo Forecast:    api.open-meteo.com — current weather conditions
-RainViewer:             api.rainviewer.com — weather radar tile metadata
-Hugging Face (startup): huggingface.co — Whisper STT model download (ggml-small.en.bin)
-Rhasspy Piper (startup): huggingface.co — Piper TTS voice ONNX model download
-```
-
-Downstream Consumers: Client application (iOS/Android/Desktop) connects via WebSocket `/ws/v1` and REST `/v1/*`. No other services call Pairion-Server.
+Note: Spring properties (via `application.yml`) are not environment variables but may be overridden via `SPRING_APPLICATION_JSON` or command-line args. The only true OS-level env vars the application reads directly are `ANTHROPIC_API_KEY`, `OPENSKY_USERNAME`, `OPENSKY_PASSWORD`, and `PAIRION_HOME`.
 
 ---
 
-### 21. Known Technical Debt & Issues
+## 20. Service Dependency Map
 
-**TODO/FIXME Scan Results:** No `TODO`, `FIXME`, or `XXX` markers detected in production source.
+Pairion Server is a standalone service with no inter-service dependencies. It does not call other internal microservices.
 
-Placeholder/stub patterns found in production code (documented, intentional M0 stubs):
+**Outbound external dependencies:**
+
+```
+Pairion-Server → External Services
+───────────────────────────────────────────────────────
+Anthropic API (https://api.anthropic.com)
+  Auth: ANTHROPIC_API_KEY env var (Bearer token via SDK)
+  Called by: AnthropicLlmAdapter → DefaultAnthropicClientWrapper
+  Trigger: each LLM generate() call per turn
+
+OpenAI-compatible API (http://localhost:1234/v1 default)
+  Auth: optional API key (pairion.adapters.openaicompat.apiKey)
+  Called by: OpenAiCompatLlmAdapter → DefaultOpenAiCompatClientWrapper
+  Trigger: each LLM generate() call per turn
+
+OpenSky Network (https://opensky-network.org/api/)
+  Auth: optional HTTP Basic (OPENSKY_USERNAME/PASSWORD)
+  Endpoints: /states/all (ADS-B), /aircraft/metadata/{icao24}, /routes
+  Called by: HttpAdsbDataClient
+  Trigger: every 10s when ADS-B overlay is active; metadata/route on enrich
+
+RainViewer API (https://api.rainviewer.com/public/weather-maps.json)
+  Auth: none
+  Called by: HttpWeatherRadarDataClient
+  Trigger: every 300s when weather radar overlay is active
+
+Open-Meteo Geocoding (https://geocoding-api.open-meteo.com/v1/search)
+  Auth: none
+  Called by: MapFocusTool, OpenMeteoWeatherTool, HttpWeatherCurrentDataClient
+  Trigger: on focus_map or get_current_weather tool call; weather_current overlay
+
+Open-Meteo Forecast (https://api.open-meteo.com/v1/forecast)
+  Auth: none
+  Called by: OpenMeteoWeatherTool, HttpWeatherCurrentDataClient
+  Trigger: on get_current_weather tool call; weather_current overlay
+
+Model CDN (Hugging Face / Piper CDN)
+  Auth: none
+  Called by: ModelDownloader (via ModelStartupService)
+  Trigger: startup only if models not present at $PAIRION_HOME/models/
+```
+
+**Downstream consumers (clients that call this service):**
+- Pairion client application (mobile/desktop) via WebSocket `/ws/v1`
+- Any HTTP client via REST `/v1/*`
+
+---
+
+## 21. Known Technical Debt & Issues
+
+### TODO/Placeholder/Stub Scan Results
+
+No `TODO`, `FIXME`, `XXX`, `HACK`, or `TEMPORARY` markers found in production source files.
+
+Placeholder/stub patterns found:
 
 | Issue | Location | Severity | Notes |
-|-------|----------|----------|-------|
-| Hardcoded OpenSky password in application.yml | `pairion-gateway/src/main/resources/application.yml:52` | CRITICAL | `opensky-password: Annabelle01*` committed in plaintext. Must move to env var or secrets manager. |
-| SOUL prompt is a placeholder | `pairion-agent/.../soul/DefaultSoulPromptProvider.java` | HIGH | Returns hardcoded prompt. Full SOUL with memory context, user preferences, and persona is deferred. All REST endpoints that depend on SOUL (household, memory, skills) are stubs. |
-| No authentication or authorization | All REST and WebSocket endpoints | HIGH | Zero auth on any endpoint. Acceptable for LAN-only M0, but BLOCKING for any external exposure. |
-| stub REST endpoints (AdapterController, HouseholdController, MemoryController, SkillController) | `pairion-gateway/.../rest/` | MEDIUM | All return empty lists or hardcoded stub maps. Placeholder for future milestones. |
-| No global error handler (@ControllerAdvice) | pairion-gateway | MEDIUM | REST errors return Spring Boot default error page, not structured JSON. |
-| No size bound on AdsbEnrichmentService in-memory cache | `AdsbEnrichmentService.java` | MEDIUM | metadataCache and routeCache can grow unbounded over long sessions; no LRU eviction. |
-| pairion-household, pairion-memory, pairion-skills are empty placeholder modules | Multiple pom.xml and package-info.java files | LOW | No source beyond package-info.java. |
-| CI/CD pipeline absent | Project root | LOW | No automated build, test, or deployment pipeline. |
+|---|---|---|---|
+| SOUL prompt is a hardcoded placeholder | `DefaultSoulPromptProvider.java` | High | Class is explicitly named "Placeholder SOUL prompt provider for M1". Full SOUL (memory context, user preferences, persona depth) is a future milestone. The `sessionId` parameter is unused. |
+| All household endpoints are stubs | `HouseholdController.java` | Medium | `getHousehold()`, `listUsers()`, `getUser()`, `createUser()`, `deleteUser()` all return synthetic in-memory data with random UUIDs. No persistence. |
+| All memory endpoints are stubs | `MemoryController.java` | Medium | `listEpisodes()` returns empty list. No memory storage exists. |
+| All skill endpoints are stubs | `SkillController.java` | Medium | `listSkills()`/`getSkill()` return hardcoded placeholder responses. |
+| All adapter endpoints are stubs | `AdapterController.java` | Medium | `listAdapters()` returns empty list; `getAdapter()` returns static stub. |
+| `pairion-household` module is empty | `pairion-household/` | Medium | Contains only `package-info.java`. No user identity, voice enrollment, or household management implementation. |
+| `pairion-memory` module is empty | `pairion-memory/` | Medium | Contains only `package-info.java`. Episodic/semantic memory is a future milestone. |
+| `pairion-skills` module is empty | `pairion-skills/` | Medium | Contains only `package-info.java`. MCP client is a future milestone. |
+| 5 adapter SPIs have no implementations | `EmbeddingAdapter`, `VadAdapter`, `VectorStoreAdapter`, `VoiceIdAdapter`, `WakeAdapter` | Low | Future milestone SPIs; no beans registered. |
+| ADS-B enrichment caches grow unboundedly | `AdsbEnrichmentService` | Low | No max size on `metadataCache` or `routeCache`. Bounded by traffic in practice, but no eviction cap. |
+| No `@ControllerAdvice` for REST errors | `pairion-gateway` | Low | Spring Boot default error responses are returned for unhandled exceptions. Error format is not standardized. |
+| No authentication on any endpoint | `pairion-gateway` | Low (dev) | No Spring Security. Acceptable in local development; must be addressed before any multi-tenant or production deployment. |
+| `HealthController.getVersion()` returns `"development"` for gitCommit | `HealthController.java:41` | Low | Hardcoded string; should be injected from build metadata at package time. |
+| `AdsbEnrichmentService` shared between sessions | `pairion-adapters` | Low | Enrichment caches are global (not session-scoped). Multiple simultaneous sessions sharing one ADS-B poller and one enrichment service may cause unexpected interactions. |
 
 ---
 
-### 22. Security Vulnerability Scan (Snyk)
+## 22. Security Vulnerability Scan (Snyk CLI)
+
+**Snyk CLI version:** 1.1303.0
+**Scan type:** Open Source dependency vulnerabilities (`snyk test`)
+**Target:** Root `pom.xml` (multi-module Maven project)
 
 ```
-Scan Date: 2026-04-26T15:30:00Z
-Snyk CLI Version: 1.1303.0
+=== SNYK OPEN SOURCE SCAN RESULTS ===
+Critical vulnerabilities:  0
+High vulnerabilities:      0
+Medium vulnerabilities:    0
+Low vulnerabilities:       0
+Total unique CVEs:         0
 
-### Dependency Vulnerabilities (Open Source)
-Critical: 0
-High: 0
-Medium: 0
-Low: 0
-Total unique: 0
-
-PASS — No known vulnerabilities in Maven dependencies.
-
-### Code Vulnerabilities (SAST)
-Snyk Code: SKIPPED — Snyk Code is not enabled for organization `aallard` (SNYK-CODE-0005).
-Status: 403 Forbidden — plan limitation.
-
-### IaC Findings
-Not applicable — no Dockerfile, docker-compose, or Terraform files present.
+Result: PASS — No known vulnerabilities in declared dependencies.
 ```
 
-**CRITICAL FINDING (manual, not Snyk):** OpenSky Network password (`Annabelle01*`) is hardcoded in `application.yml` and committed to the repository. This must be treated as a leaked credential regardless of whether Snyk flagged it.
+**Snyk Code (SAST):** Not run (requires Snyk Code license; not available in this environment).
 
+**Manual security observations from audit:**
+- `ANTHROPIC_API_KEY` is never logged (ApiKeyRedactionFilter blocks `sk-ant-*` patterns at Logback level)
+- `OPENSKY_USERNAME`/`OPENSKY_PASSWORD` are injected as Spring properties; not referenced in source code except via `@Value` binding; no logging of credentials detected
+- No hardcoded secrets found in source files
+- WebSocket endpoint allows all origins (`setAllowedOrigins("*")`) — acceptable for local development; restrict in production
+- No rate limiting on any endpoint (all open); acceptable for single-household local deployment
+- No HTTPS enforcement in configuration — depends on reverse proxy in production
