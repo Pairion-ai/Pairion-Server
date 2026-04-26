@@ -29,8 +29,8 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 /**
- * Tests verifying that {@link AgentSession} emits {@code [LATENCY]} log lines for each stage
- * of the voice turn loop, for both tool-use and no-tool turns.
+ * Tests verifying that {@link AgentSession} emits {@code [LATENCY]} log lines for each stage of the
+ * voice turn loop, for both tool-use and no-tool turns.
  */
 class AgentSessionLatencyTest {
 
@@ -64,6 +64,7 @@ class AgentSessionLatencyTest {
                         ttsAdapter,
                         soulProvider,
                         toolDispatcher,
+                        null,
                         null,
                         null,
                         event -> {});
@@ -124,8 +125,7 @@ class AgentSessionLatencyTest {
         // Wire finalizeStream to emit Final event so onSpeechEnded() sets sttStartNano
         doAnswer(
                         inv -> {
-                            sttConsumer[0].accept(
-                                    new SttEvent.Final("Is that right?", 800));
+                            sttConsumer[0].accept(new SttEvent.Final("Is that right?", 800));
                             return null;
                         })
                 .when(mockSttSession)
@@ -162,8 +162,8 @@ class AgentSessionLatencyTest {
     }
 
     /**
-     * Verifies that a full turn with tool use emits [LATENCY] log lines for all stages A–F and
-     * a summary line showing numeric values for C and D.
+     * Verifies that a full turn with tool use emits [LATENCY] log lines for all stages A–F and a
+     * summary line showing numeric values for C and D.
      */
     @Test
     @SuppressWarnings("unchecked")
@@ -193,7 +193,8 @@ class AgentSessionLatencyTest {
                                 consumer.accept(new LlmEvent.Stop(0));
                             } else {
                                 consumer.accept(
-                                        new LlmEvent.TokenDelta("It is seventy degrees in Dallas."));
+                                        new LlmEvent.TokenDelta(
+                                                "It is seventy degrees in Dallas."));
                                 consumer.accept(new LlmEvent.Stop(6));
                             }
                             return null;
@@ -250,8 +251,8 @@ class AgentSessionLatencyTest {
     }
 
     /**
-     * Verifies the exact format of the summary log line for a no-tool turn: it must contain
-     * the required stage labels A=, B=, C=N/A, D=N/A, E=, F=.
+     * Verifies the exact format of the summary log line for a no-tool turn: it must contain the
+     * required stage labels A=, B=, C=N/A, D=N/A, E=, F=.
      */
     @Test
     @SuppressWarnings("unchecked")

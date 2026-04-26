@@ -2,6 +2,7 @@ package com.pairion.gateway.ws;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pairion.adapters.data.adsb.AdsbDataAdapter;
+import com.pairion.adapters.data.weathercurrent.WeatherCurrentDataAdapter;
 import com.pairion.adapters.data.weatherradar.WeatherRadarDataAdapter;
 import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
@@ -13,12 +14,12 @@ import com.pairion.agent.tools.ToolDispatcher;
 import com.pairion.core.ws.AgentStateChange;
 import com.pairion.core.ws.AudioStreamEnd;
 import com.pairion.core.ws.AudioStreamStart;
+import com.pairion.core.ws.BackgroundChange;
+import com.pairion.core.ws.ConversationEnded;
 import com.pairion.core.ws.DeviceIdentify;
 import com.pairion.core.ws.HeartbeatPing;
 import com.pairion.core.ws.HeartbeatPong;
 import com.pairion.core.ws.LlmTokenStream;
-import com.pairion.core.ws.BackgroundChange;
-import com.pairion.core.ws.ConversationEnded;
 import com.pairion.core.ws.MapClear;
 import com.pairion.core.ws.MapFocus;
 import com.pairion.core.ws.OverlayAdd;
@@ -73,6 +74,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
     private final ToolDispatcher toolDispatcher;
     private final AdsbDataAdapter adsbDataAdapter;
     private final WeatherRadarDataAdapter weatherRadarDataAdapter;
+    private final WeatherCurrentDataAdapter weatherCurrentDataAdapter;
     private final Map<String, AgentSession> sessions = new ConcurrentHashMap<>();
 
     /**
@@ -84,8 +86,11 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
      * @param ttsAdapter the text-to-speech adapter (nullable — TTS may be unavailable)
      * @param soulProvider the SOUL prompt provider
      * @param toolDispatcher the tool dispatcher for LLM tool calls
-     * @param adsbDataAdapter         the ADS-B data adapter for live aircraft radar; null if unavailable
-     * @param weatherRadarDataAdapter the weather radar data adapter for RainViewer tiles; null if unavailable
+     * @param adsbDataAdapter the ADS-B data adapter for live aircraft radar; null if unavailable
+     * @param weatherRadarDataAdapter the weather radar data adapter for RainViewer tiles; null if
+     *     unavailable
+     * @param weatherCurrentDataAdapter the current weather data adapter for Open-Meteo; null if
+     *     unavailable
      */
     public PairionWebSocketHandler(
             ObjectMapper objectMapper,
@@ -95,7 +100,8 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             SoulPromptProvider soulProvider,
             ToolDispatcher toolDispatcher,
             @Nullable AdsbDataAdapter adsbDataAdapter,
-            @Nullable WeatherRadarDataAdapter weatherRadarDataAdapter) {
+            @Nullable WeatherRadarDataAdapter weatherRadarDataAdapter,
+            @Nullable WeatherCurrentDataAdapter weatherCurrentDataAdapter) {
         this.objectMapper = objectMapper;
         this.sttAdapter = sttAdapter;
         this.llmAdapter = llmAdapter;
@@ -104,6 +110,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
         this.toolDispatcher = toolDispatcher;
         this.adsbDataAdapter = adsbDataAdapter;
         this.weatherRadarDataAdapter = weatherRadarDataAdapter;
+        this.weatherCurrentDataAdapter = weatherCurrentDataAdapter;
     }
 
     /**
@@ -208,6 +215,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                         toolDispatcher,
                         adsbDataAdapter,
                         weatherRadarDataAdapter,
+                        weatherCurrentDataAdapter,
                         event -> sendAgentEvent(session, event));
         sessions.put(session.getId(), agentSession);
         agentSession.activateDefaultOsmView();
@@ -270,8 +278,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             switch (event) {
                 case AgentSessionEvent.AudioChunkEvent chunk ->
                         session.sendMessage(new BinaryMessage(chunk.frameData()));
-                default ->
-                        session.sendMessage(new TextMessage(serializeEvent(event)));
+                default -> session.sendMessage(new TextMessage(serializeEvent(event)));
             }
         } catch (Exception e) {
             log.error("Failed to send agent event: sessionId={}", session.getId(), e);
@@ -309,9 +316,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             case AgentSessionEvent.ToolCallCompletedEvent tc ->
                     objectMapper.writeValueAsString(
                             new ToolCallCompleted(
-                                    ToolCallCompleted.TYPE,
-                                    tc.toolCallId(),
-                                    tc.output()));
+                                    ToolCallCompleted.TYPE, tc.toolCallId(), tc.output()));
             case AgentSessionEvent.AudioStreamStartEvent as ->
                     objectMapper.writeValueAsString(
                             new AudioStreamStart(
@@ -322,21 +327,20 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             case AgentSessionEvent.AudioStreamEndEvent ae ->
                     objectMapper.writeValueAsString(
                             new AudioStreamEnd(AudioStreamEnd.TYPE, ae.streamId(), ae.reason()));
-            case AgentSessionEvent.AudioChunkEvent ignored ->
-                    null; // handled as binary above
+            case AgentSessionEvent.AudioChunkEvent ignored -> null; // handled as binary above
             case AgentSessionEvent.MapFocusEvent mf ->
                     objectMapper.writeValueAsString(
-                            new MapFocus(MapFocus.TYPE, mf.lat(), mf.lon(), mf.label(),
-                                    mf.zoom()));
+                            new MapFocus(MapFocus.TYPE, mf.lat(), mf.lon(), mf.label(), mf.zoom()));
             case AgentSessionEvent.MapClearEvent ignored ->
                     objectMapper.writeValueAsString(new MapClear(MapClear.TYPE));
             case AgentSessionEvent.ConversationEndedEvent ignored ->
-                    objectMapper.writeValueAsString(
-                            new ConversationEnded(ConversationEnded.TYPE));
+                    objectMapper.writeValueAsString(new ConversationEnded(ConversationEnded.TYPE));
             case AgentSessionEvent.BackgroundChangeEvent bc ->
                     objectMapper.writeValueAsString(
                             new BackgroundChange(
-                                    BackgroundChange.TYPE, bc.backgroundId(), bc.params(),
+                                    BackgroundChange.TYPE,
+                                    bc.backgroundId(),
+                                    bc.params(),
                                     bc.transition()));
             case AgentSessionEvent.OverlayAddEvent oa ->
                     objectMapper.writeValueAsString(

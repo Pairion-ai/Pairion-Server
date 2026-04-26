@@ -53,8 +53,15 @@ class PairionWebSocketHandlerTest {
         when(sttAdapter.createSession(any())).thenReturn(mock(SttAdapter.SttSession.class));
         handler =
                 new PairionWebSocketHandler(
-                        objectMapper, sttAdapter, llmAdapter, ttsAdapter, soulProvider,
-                        toolDispatcher, null, null);
+                        objectMapper,
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        null,
+                        null);
         session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("test-session-1");
     }
@@ -75,18 +82,22 @@ class PairionWebSocketHandlerTest {
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session, org.mockito.Mockito.atLeast(1)).sendMessage(captor.capture());
 
-        SessionOpened opened = captor.getAllValues().stream()
-                .map(msg -> {
-                    try {
-                        return objectMapper.readValue(msg.getPayload(), WebSocketMessage.class);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .filter(msg -> msg instanceof SessionOpened)
-                .map(msg -> (SessionOpened) msg)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("SessionOpened not found in messages"));
+        SessionOpened opened =
+                captor.getAllValues().stream()
+                        .map(
+                                msg -> {
+                                    try {
+                                        return objectMapper.readValue(
+                                                msg.getPayload(), WebSocketMessage.class);
+                                    } catch (Exception e) {
+                                        throw new RuntimeException(e);
+                                    }
+                                })
+                        .filter(msg -> msg instanceof SessionOpened)
+                        .map(msg -> (SessionOpened) msg)
+                        .findFirst()
+                        .orElseThrow(
+                                () -> new AssertionError("SessionOpened not found in messages"));
 
         assertThat(opened.type()).isEqualTo("SessionOpened");
         assertThat(opened.serverVersion()).isEqualTo("0.3.0");
@@ -235,8 +246,7 @@ class PairionWebSocketHandlerTest {
     void sendAgentEventAudioChunkSendsBinaryFrame() throws Exception {
         byte[] frame = new byte[] {0x01, 0x02, 0x03, 0x04};
         handler.sendAgentEvent(
-                session,
-                new com.pairion.agent.session.AgentSessionEvent.AudioChunkEvent(frame));
+                session, new com.pairion.agent.session.AgentSessionEvent.AudioChunkEvent(frame));
 
         ArgumentCaptor<org.springframework.web.socket.BinaryMessage> captor =
                 ArgumentCaptor.forClass(org.springframework.web.socket.BinaryMessage.class);
@@ -318,8 +328,7 @@ class PairionWebSocketHandlerTest {
     @Test
     void sendAgentEventMapClearSendsJson() throws Exception {
         handler.sendAgentEvent(
-                session,
-                new com.pairion.agent.session.AgentSessionEvent.MapClearEvent());
+                session, new com.pairion.agent.session.AgentSessionEvent.MapClearEvent());
 
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(captor.capture());
@@ -329,8 +338,7 @@ class PairionWebSocketHandlerTest {
     @Test
     void sendAgentEventConversationEndedSendsJson() throws Exception {
         handler.sendAgentEvent(
-                session,
-                new com.pairion.agent.session.AgentSessionEvent.ConversationEndedEvent());
+                session, new com.pairion.agent.session.AgentSessionEvent.ConversationEndedEvent());
 
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(captor.capture());
@@ -381,8 +389,7 @@ class PairionWebSocketHandlerTest {
     @Test
     void sendAgentEventOverlayClearSendsJson() throws Exception {
         handler.sendAgentEvent(
-                session,
-                new com.pairion.agent.session.AgentSessionEvent.OverlayClearEvent());
+                session, new com.pairion.agent.session.AgentSessionEvent.OverlayClearEvent());
 
         ArgumentCaptor<TextMessage> captor = ArgumentCaptor.forClass(TextMessage.class);
         verify(session).sendMessage(captor.capture());

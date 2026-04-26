@@ -10,15 +10,18 @@ import org.springframework.stereotype.Component;
 /**
  * Agent tool that adds an overlay layer on top of the current background.
  *
- * <p>Multiple overlays may be active simultaneously. On success,
- * {@link com.pairion.agent.session.AgentSession} intercepts the result and emits an
- * {@code OverlayAdd} WebSocket message to the client. The client stacks overlays in the order
- * received; if the named overlay is already active, the client replaces it with the new parameters.
+ * <p>Multiple overlays may be active simultaneously. On success, {@link
+ * com.pairion.agent.session.AgentSession} intercepts the result and emits an {@code OverlayAdd}
+ * WebSocket message to the client. The client stacks overlays in the order received; if the named
+ * overlay is already active, the client replaces it with the new parameters.
  *
  * <p>Available overlay identifiers:
+ *
  * <ul>
- *   <li>{@code adsb} — live ADS-B aircraft radar from OpenSky Network</li>
- *   <li>{@code weather_radar} — live weather radar tiles from RainViewer</li>
+ *   <li>{@code adsb} — live ADS-B aircraft radar from OpenSky Network
+ *   <li>{@code weather_radar} — live weather radar tiles from RainViewer
+ *   <li>{@code weather_current} — current conditions panel showing temperature, humidity, and wind
+ *       for a named city
  * </ul>
  */
 @Component
@@ -39,9 +42,10 @@ public class AddOverlayTool implements AgentTool {
      * to intercept and forward to the client as an {@code OverlayAdd} WebSocket message.
      *
      * <p>Input parameters:
+     *
      * <ul>
-     *   <li>{@code overlay_id} (required) — identifier of the overlay to activate</li>
-     *   <li>{@code params} (optional) — overlay-specific parameters (passed through to client)</li>
+     *   <li>{@code overlay_id} (required) — identifier of the overlay to activate
+     *   <li>{@code params} (optional) — overlay-specific parameters (passed through to client)
      * </ul>
      *
      * <p>On success, returns a map with keys: {@code status}, {@code overlay_id}, and optionally
@@ -54,15 +58,14 @@ public class AddOverlayTool implements AgentTool {
     public Map<String, Object> execute(Map<String, Object> input) {
         Object overlayIdObj = input.get("overlay_id");
         if (overlayIdObj == null) {
-            return Map.of("error", "missing_parameter",
-                    "message", "overlay_id parameter is required");
+            return Map.of(
+                    "error", "missing_parameter", "message", "overlay_id parameter is required");
         }
         String overlayId = overlayIdObj.toString();
 
         @SuppressWarnings("unchecked")
-        Map<String, Object> params = input.containsKey("params")
-                ? (Map<String, Object>) input.get("params")
-                : null;
+        Map<String, Object> params =
+                input.containsKey("params") ? (Map<String, Object>) input.get("params") : null;
 
         log.info("layer.overlay.add: overlayId={}", overlayId);
 

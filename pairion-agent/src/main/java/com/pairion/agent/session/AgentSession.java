@@ -2,6 +2,7 @@ package com.pairion.agent.session;
 
 import com.pairion.adapters.audio.opus.OpusDecoder;
 import com.pairion.adapters.data.adsb.AdsbDataAdapter;
+import com.pairion.adapters.data.weathercurrent.WeatherCurrentDataAdapter;
 import com.pairion.adapters.data.weatherradar.WeatherRadarDataAdapter;
 import com.pairion.adapters.llm.spi.LlmAdapter;
 import com.pairion.adapters.stt.spi.SttAdapter;
@@ -49,18 +50,23 @@ import org.slf4j.MDC;
  *   <li>Emit AgentStateChange(idle)
  * </ol>
  *
- * <p>Each stage of the turn loop is instrumented with wall-clock latency logging using
- * {@code System.nanoTime()}. Log lines are prefixed with {@code [LATENCY]} for grep-friendly
- * extraction. Stage definitions:
+ * <p>Each stage of the turn loop is instrumented with wall-clock latency logging using {@code
+ * System.nanoTime()}. Log lines are prefixed with {@code [LATENCY]} for grep-friendly extraction.
+ * Stage definitions:
+ *
  * <ul>
- *   <li>A (STT): SpeechEnded → SttEvent.Final received</li>
- *   <li>B (LLM-1): first LLM generate() call</li>
- *   <li>C (Tool): tool dispatch (cumulative across rounds; omitted when no tool used)</li>
- *   <li>D (LLM-2): subsequent LLM generate() calls (cumulative; omitted when no tool used)</li>
- *   <li>E (TTS): TTS synthesis start → synthesis complete</li>
- *   <li>F (Send): first TTS chunk received → first binary WebSocket frame written</li>
- *   <li>T (Total): SpeechEnded → first binary audio frame sent to client</li>
+ *   <li>A (STT): SpeechEnded → SttEvent.Final received
+ *   <li>B (LLM-1): first LLM generate() call
+ *   <li>C (Tool): tool dispatch (cumulative across rounds; omitted when no tool used)
+ *   <li>D (LLM-2): subsequent LLM generate() calls (cumulative; omitted when no tool used)
+ *   <li>E (TTS): TTS synthesis start → synthesis complete
+ *   <li>F (Send): first TTS chunk received → first binary WebSocket frame written
+ *   <li>T (Total): SpeechEnded → first binary audio frame sent to client
  * </ul>
+ *
+ * <p>Dependencies: {@link AdsbDataAdapter}, {@link WeatherRadarDataAdapter}, {@link
+ * WeatherCurrentDataAdapter} are injected as nullable optional adapters; the session operates
+ * without them when null.
  */
 public class AgentSession {
 
@@ -77,35 +83,56 @@ public class AgentSession {
     private final ToolDispatcher toolDispatcher;
     private final AdsbDataAdapter adsbDataAdapter;
     private final WeatherRadarDataAdapter weatherRadarDataAdapter;
+    private final WeatherCurrentDataAdapter weatherCurrentDataAdapter;
     private final Consumer<AgentSessionEvent> eventSink;
 
     private OpusDecoder opusDecoder;
     private SttAdapter.SttSession sttSession;
     private AgentState currentState = AgentState.IDLE;
 
-    /** Scheduler used solely to emit {@link AgentSessionEvent.MapClearEvent} after 2-minute idle. */
+    /**
+     * Scheduler used solely to emit {@link AgentSessionEvent.MapClearEvent} after 2-minute idle.
+     */
     private final ScheduledExecutorService clearScheduler;
 
     /** Pending clear timer, or {@code null} when no map focus is active. */
     private volatile ScheduledFuture<?> clearFuture;
 
     /**
-     * Phrases that, when detected in a user transcript, trigger an immediate map clear.
-     * Checked case-insensitively as substrings.
+     * Phrases that, when detected in a user transcript, trigger an immediate map clear. Checked
+     * case-insensitively as substrings.
      */
-    private static final List<String> MAP_CLEAR_PHRASES = List.of(
-            "go back", "that's all", "thats all", "never mind", "nevermind",
-            "clear the map", "zoom out", "we're done", "we are done");
+    private static final List<String> MAP_CLEAR_PHRASES =
+            List.of(
+                    "go back",
+                    "that's all",
+                    "thats all",
+                    "never mind",
+                    "nevermind",
+                    "clear the map",
+                    "zoom out",
+                    "we're done",
+                    "we are done");
 
     /**
-     * Phrases that, when detected in a user transcript, signal the end of the conversation.
-     * A superset may overlap with {@link #MAP_CLEAR_PHRASES}; both checks run independently.
-     * Checked case-insensitively as substrings.
+     * Phrases that, when detected in a user transcript, signal the end of the conversation. A
+     * superset may overlap with {@link #MAP_CLEAR_PHRASES}; both checks run independently. Checked
+     * case-insensitively as substrings.
      */
-    private static final List<String> CONVERSATION_END_PHRASES = List.of(
-            "that's all", "thats all", "goodbye", "good bye", "bye bye", "see you later",
-            "we're done", "we are done", "stop listening", "that will be all",
-            "thank you goodbye", "thanks goodbye");
+    private static final List<String> CONVERSATION_END_PHRASES =
+            List.of(
+                    "that's all",
+                    "thats all",
+                    "goodbye",
+                    "good bye",
+                    "bye bye",
+                    "see you later",
+                    "we're done",
+                    "we are done",
+                    "stop listening",
+                    "that will be all",
+                    "thank you goodbye",
+                    "thanks goodbye");
 
     /**
      * Nanosecond timestamp captured at the start of {@link #onSpeechEnded()} to anchor Stage A
@@ -122,8 +149,11 @@ public class AgentSession {
      * @param ttsAdapter the text-to-speech adapter (may be null if TTS unavailable)
      * @param soulProvider the SOUL prompt provider
      * @param toolDispatcher the tool dispatcher for LLM tool calls
-     * @param adsbDataAdapter         the ADS-B data adapter for live aircraft radar; null if unavailable
-     * @param weatherRadarDataAdapter the weather radar data adapter for RainViewer tiles; null if unavailable
+     * @param adsbDataAdapter the ADS-B data adapter for live aircraft radar; null if unavailable
+     * @param weatherRadarDataAdapter the weather radar data adapter for RainViewer tiles; null if
+     *     unavailable
+     * @param weatherCurrentDataAdapter the current weather data adapter for Open-Meteo; null if
+     *     unavailable
      * @param eventSink consumer receiving agent events to forward to the Client
      */
     public AgentSession(
@@ -135,6 +165,7 @@ public class AgentSession {
             ToolDispatcher toolDispatcher,
             AdsbDataAdapter adsbDataAdapter,
             WeatherRadarDataAdapter weatherRadarDataAdapter,
+            WeatherCurrentDataAdapter weatherCurrentDataAdapter,
             Consumer<AgentSessionEvent> eventSink) {
         this.sessionId = sessionId;
         this.sttAdapter = sttAdapter;
@@ -144,12 +175,15 @@ public class AgentSession {
         this.toolDispatcher = toolDispatcher;
         this.adsbDataAdapter = adsbDataAdapter;
         this.weatherRadarDataAdapter = weatherRadarDataAdapter;
+        this.weatherCurrentDataAdapter = weatherCurrentDataAdapter;
         this.eventSink = eventSink;
-        this.clearScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "map-clear-" + sessionId);
-            t.setDaemon(true);
-            return t;
-        });
+        this.clearScheduler =
+                Executors.newSingleThreadScheduledExecutor(
+                        r -> {
+                            Thread t = new Thread(r, "map-clear-" + sessionId);
+                            t.setDaemon(true);
+                            return t;
+                        });
     }
 
     /**
@@ -230,17 +264,15 @@ public class AgentSession {
     }
 
     /**
-     * Emits the timer-driven {@link AgentSessionEvent.MapClearEvent}. Extracted from the lambda
-     * in {@link #rescheduleClear()} so that unit tests can invoke it directly without waiting
-     * 2 minutes.
+     * Emits the timer-driven {@link AgentSessionEvent.MapClearEvent}. Extracted from the lambda in
+     * {@link #rescheduleClear()} so that unit tests can invoke it directly without waiting 2
+     * minutes.
      */
     void emitTimedMapClear() {
         eventSink.accept(new AgentSessionEvent.MapClearEvent());
     }
 
-    /**
-     * Cancels any pending map-clear timer without emitting the event.
-     */
+    /** Cancels any pending map-clear timer without emitting the event. */
     private void cancelClear() {
         ScheduledFuture<?> f = clearFuture;
         if (f != null) {
@@ -252,11 +284,11 @@ public class AgentSession {
     /**
      * Emits a {@link AgentSessionEvent.MapFocusEvent} derived from a {@code get_current_weather}
      * tool result. Uses the {@code latitude}/{@code longitude} coordinates and {@code city} label
-     * returned by the weather tool so the map always focuses when weather is fetched, even when
-     * the LLM does not call {@code focus_map} explicitly.
+     * returned by the weather tool so the map always focuses when weather is fetched, even when the
+     * LLM does not call {@code focus_map} explicitly.
      *
-     * @param result the weather tool result containing {@code latitude}, {@code longitude},
-     *               and {@code city}
+     * @param result the weather tool result containing {@code latitude}, {@code longitude}, and
+     *     {@code city}
      */
     private void emitMapFocusFromWeather(Map<String, Object> result) {
         double lat = ((Number) result.get("latitude")).doubleValue();
@@ -292,8 +324,8 @@ public class AgentSession {
      * Emits a {@link AgentSessionEvent.MapFocusEvent} from a successful {@code focus_map} tool
      * result and starts the 2-minute auto-clear timer.
      *
-     * @param result the tool result map containing {@code lat}, {@code lon}, {@code label},
-     *               {@code zoom}
+     * @param result the tool result map containing {@code lat}, {@code lon}, {@code label}, {@code
+     *     zoom}
      */
     private void emitMapFocus(Map<String, Object> result) {
         double lat = ((Number) result.get("lat")).doubleValue();
@@ -315,10 +347,11 @@ public class AgentSession {
      * <p>Public so the WebSocket handler can call it on device identify.
      */
     public void activateDefaultOsmView() {
-        Map<String, Object> params = Map.of(
-                "zoom", 10,
-                "center_lat", 32.86,
-                "center_lon", -97.04);
+        Map<String, Object> params =
+                Map.of(
+                        "zoom", 10,
+                        "center_lat", 32.86,
+                        "center_lon", -97.04);
         eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent("osm", params, "instant"));
         log.info("layer.osm.default.activated");
     }
@@ -327,8 +360,8 @@ public class AgentSession {
      * Activates the ADS-B radar by emitting a {@link AgentSessionEvent.BackgroundChangeEvent} for
      * the VFR sectional chart background, an {@link AgentSessionEvent.OverlayAddEvent} for the
      * ADS-B aircraft overlay, and, if an {@link AdsbDataAdapter} is configured, starts the polling
-     * loop. Each poll delivers a {@link AgentSessionEvent.SceneDataPushEvent} with model ID
-     * {@code "adsb"}.
+     * loop. Each poll delivers a {@link AgentSessionEvent.SceneDataPushEvent} with model ID {@code
+     * "adsb"}.
      */
     public void activateAdsbRadar() {
         emitAdsbRadar();
@@ -350,22 +383,25 @@ public class AgentSession {
     }
 
     /**
-     * Emits a {@link AgentSessionEvent.BackgroundChangeEvent} derived from a successful
-     * {@code set_background} tool result and forwards it to the client.
+     * Emits a {@link AgentSessionEvent.BackgroundChangeEvent} derived from a successful {@code
+     * set_background} tool result and forwards it to the client.
      *
      * @param result the tool result map containing {@code background_id} and {@code transition}
      */
     private void emitBackgroundChange(Map<String, Object> result) {
         String backgroundId = (String) result.get("background_id");
         String transition = (String) result.getOrDefault("transition", "crossfade");
-        eventSink.accept(new AgentSessionEvent.BackgroundChangeEvent(backgroundId, null, transition));
-        log.info("layer.background.emitted: backgroundId={}, transition={}", backgroundId,
+        eventSink.accept(
+                new AgentSessionEvent.BackgroundChangeEvent(backgroundId, null, transition));
+        log.info(
+                "layer.background.emitted: backgroundId={}, transition={}",
+                backgroundId,
                 transition);
     }
 
     /**
-     * Emits an {@link AgentSessionEvent.OverlayAddEvent} derived from a successful
-     * {@code add_overlay} tool result and forwards it to the client.
+     * Emits an {@link AgentSessionEvent.OverlayAddEvent} derived from a successful {@code
+     * add_overlay} tool result and forwards it to the client.
      *
      * @param result the tool result map containing {@code overlay_id} and optionally {@code params}
      */
@@ -382,11 +418,25 @@ public class AgentSession {
                                     new AgentSessionEvent.SceneDataPushEvent(
                                             "weather_radar", snapshot)));
         }
+        if ("weather_current".equals(overlayId) && weatherCurrentDataAdapter != null) {
+            Object cityObj = params != null ? params.get("city") : null;
+            if (cityObj != null) {
+                weatherCurrentDataAdapter.start(
+                        cityObj.toString(),
+                        snap ->
+                                eventSink.accept(
+                                        new AgentSessionEvent.SceneDataPushEvent(
+                                                "weather_current", snap)));
+                log.info("layer.weather-current.fetch.started: city={}", cityObj);
+            } else {
+                log.warn("layer.weather-current.missing-city: no city param in overlay params");
+            }
+        }
     }
 
     /**
-     * Emits an {@link AgentSessionEvent.OverlayRemoveEvent} derived from a successful
-     * {@code remove_overlay} tool result and forwards it to the client.
+     * Emits an {@link AgentSessionEvent.OverlayRemoveEvent} derived from a successful {@code
+     * remove_overlay} tool result and forwards it to the client.
      *
      * @param result the tool result map containing {@code overlay_id}
      */
@@ -399,9 +449,7 @@ public class AgentSession {
         }
     }
 
-    /**
-     * Emits an {@link AgentSessionEvent.OverlayClearEvent} and forwards it to the client.
-     */
+    /** Emits an {@link AgentSessionEvent.OverlayClearEvent} and forwards it to the client. */
     private void emitOverlayClear() {
         eventSink.accept(new AgentSessionEvent.OverlayClearEvent());
         log.info("layer.overlay.clear.emitted");
@@ -418,12 +466,10 @@ public class AgentSession {
     void handleSttEvent(SttEvent event) {
         switch (event) {
             case SttEvent.Partial partial ->
-                    eventSink.accept(
-                            new AgentSessionEvent.TranscriptPartialEvent(partial.text()));
+                    eventSink.accept(new AgentSessionEvent.TranscriptPartialEvent(partial.text()));
             case SttEvent.Final finalEvent -> {
                 long stageAMs = toMs(System.nanoTime() - sttStartNano);
-                eventSink.accept(
-                        new AgentSessionEvent.TranscriptFinalEvent(finalEvent.text()));
+                eventSink.accept(new AgentSessionEvent.TranscriptFinalEvent(finalEvent.text()));
                 onTranscriptFinal(finalEvent.text(), stageAMs);
             }
         }
@@ -480,8 +526,7 @@ public class AgentSession {
 
             long llmRoundStart = System.nanoTime();
             llmAdapter.generate(
-                    request,
-                    event -> handleLlmEvent(event, responseText, pendingToolCalls));
+                    request, event -> handleLlmEvent(event, responseText, pendingToolCalls));
             long llmRoundMs = toMs(System.nanoTime() - llmRoundStart);
 
             if (firstLlmRound) {
@@ -503,11 +548,9 @@ public class AgentSession {
                 eventSink.accept(
                         new AgentSessionEvent.ToolCallStartedEvent(
                                 tc.toolCallId(), tc.toolName(), tc.input()));
-                Map<String, Object> result =
-                        toolDispatcher.dispatch(tc.toolName(), tc.input());
+                Map<String, Object> result = toolDispatcher.dispatch(tc.toolName(), tc.input());
                 // Side-effect: notify client to focus the map immediately on success.
-                if (MapFocusTool.TOOL_NAME.equals(tc.toolName())
-                        && !result.containsKey("error")) {
+                if (MapFocusTool.TOOL_NAME.equals(tc.toolName()) && !result.containsKey("error")) {
                     emitMapFocus(result);
                 } else if ("get_current_weather".equals(tc.toolName())
                         && result.containsKey("latitude")
@@ -569,8 +612,7 @@ public class AgentSession {
                 textAccumulator.append(tokenDelta.delta());
             }
             case LlmEvent.ToolCallRequest req -> {
-                log.info(
-                        "tool.request: id={}, name={}", req.toolCallId(), req.toolName());
+                log.info("tool.request: id={}, name={}", req.toolCallId(), req.toolName());
                 toolCallAccumulator.add(req);
             }
             case LlmEvent.ToolCallResult res ->
@@ -581,8 +623,8 @@ public class AgentSession {
     }
 
     /**
-     * Synthesizes the response text via TTS, streams Opus audio frames to the client, and logs
-     * all per-stage and total latency for the completed turn.
+     * Synthesizes the response text via TTS, streams Opus audio frames to the client, and logs all
+     * per-stage and total latency for the completed turn.
      *
      * <p>Emits AudioStreamStart, zero or more AudioChunk binary events, then AudioStreamEnd.
      * Transitions state to SPEAKING before synthesis and back to IDLE afterward.
@@ -601,8 +643,7 @@ public class AgentSession {
         // Use 16000 Hz for Opus (standard Piper TTS output rate after resampling)
         int sampleRate = 16000;
 
-        eventSink.accept(
-                new AgentSessionEvent.AudioStreamStartEvent(streamId, "opus", sampleRate));
+        eventSink.accept(new AgentSessionEvent.AudioStreamStartEvent(streamId, "opus", sampleRate));
         log.info("tts.stream.start: streamId={}", streamId);
 
         long ttsStartNano = System.nanoTime();
@@ -658,8 +699,8 @@ public class AgentSession {
      * Logs per-stage and total latency for a completed agent turn (all stages including TTS).
      *
      * <p>Stages C and D are logged only when a tool was invoked ({@code stageCMs >= 0}). The
-     * summary line always appears last and includes all stage values so a single grep captures
-     * the full turn breakdown.
+     * summary line always appears last and includes all stage values so a single grep captures the
+     * full turn breakdown.
      *
      * @param stageAMs Stage A (STT) latency in milliseconds
      * @param stageBMs Stage B (LLM-1) latency in milliseconds
@@ -713,8 +754,7 @@ public class AgentSession {
      * @param stageCMs Stage C (Tool) cumulative latency, or -1 if no tool was invoked
      * @param stageDMs Stage D (LLM-2) cumulative latency, or -1 if no tool was invoked
      */
-    private void logPartialLatency(
-            long stageAMs, long stageBMs, long stageCMs, long stageDMs) {
+    private void logPartialLatency(long stageAMs, long stageBMs, long stageCMs, long stageDMs) {
         log.info("[LATENCY] Stage A (STT): {} ms", stageAMs);
         log.info("[LATENCY] Stage B (LLM-1): {} ms", stageBMs);
         if (stageCMs >= 0) {
@@ -771,16 +811,19 @@ public class AgentSession {
                                         Map.of(
                                                 "location",
                                                 Map.of(
-                                                        "type", "string",
+                                                        "type",
+                                                        "string",
                                                         "description",
                                                         "Place name to geocode and focus on,"
                                                                 + " e.g. 'Tokyo', 'Okinawa"
                                                                 + " Prefecture', 'Japan'"),
                                                 "zoom",
                                                 Map.of(
-                                                        "type", "string",
+                                                        "type",
+                                                        "string",
                                                         "enum",
-                                                        List.of("continent", "country",
+                                                        List.of(
+                                                                "continent", "country",
                                                                 "region", "city"),
                                                         "description",
                                                         "Zoom level: continent, country,"
@@ -803,17 +846,18 @@ public class AgentSession {
                                         Map.of(
                                                 "background_id",
                                                 Map.of(
-                                                        "type", "string",
+                                                        "type",
+                                                        "string",
                                                         "description",
                                                         "Background identifier: 'globe',"
                                                                 + " 'space', 'vfr',"
                                                                 + " or 'dashboard'"),
                                                 "transition",
                                                 Map.of(
-                                                        "type", "string",
+                                                        "type",
+                                                        "string",
                                                         "enum",
-                                                        List.of("crossfade", "slide",
-                                                                "instant"),
+                                                        List.of("crossfade", "slide", "instant"),
                                                         "description",
                                                         "Transition animation, default:"
                                                                 + " crossfade")),
@@ -823,21 +867,29 @@ public class AgentSession {
                         "Add a data overlay on top of the current background. Multiple overlays"
                                 + " can be active simultaneously. Available overlays: 'adsb'"
                                 + " (live ADS-B aircraft radar from OpenSky Network);"
-                                + " 'weather_radar' (live weather radar tiles from RainViewer).",
+                                + " 'weather_radar' (live weather radar tiles from RainViewer);"
+                                + " 'weather_current' (current conditions panel — temperature,"
+                                + " humidity, wind for a city).",
                         Map.of(
                                 "type", "object",
                                 "properties",
                                         Map.of(
                                                 "overlay_id",
                                                 Map.of(
-                                                        "type", "string",
+                                                        "type",
+                                                        "string",
                                                         "description",
-                                                        "Overlay identifier: 'adsb' or 'weather_radar'"),
+                                                        "Overlay identifier: 'adsb',"
+                                                                + " 'weather_radar',"
+                                                                + " or 'weather_current'"),
                                                 "params",
                                                 Map.of(
-                                                        "type", "object",
+                                                        "type",
+                                                        "object",
                                                         "description",
-                                                        "Optional overlay-specific parameters")),
+                                                        "Optional overlay-specific parameters;"
+                                                                + " e.g. {\"city\": \"Tokyo\"}"
+                                                                + " for weather_current")),
                                 "required", List.of("overlay_id"))),
                 new ToolDefinition(
                         "remove_overlay",
@@ -849,7 +901,8 @@ public class AgentSession {
                                         Map.of(
                                                 "overlay_id",
                                                 Map.of(
-                                                        "type", "string",
+                                                        "type",
+                                                        "string",
                                                         "description",
                                                         "Overlay identifier to remove")),
                                 "required", List.of("overlay_id"))),

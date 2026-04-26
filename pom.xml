@@ -237,6 +237,10 @@
                                      Unit-tested via WeatherRadarDataClient mock boundary. -->
                                 <exclude>com/pairion/adapters/data/weatherradar/HttpWeatherRadarDataClient.class</exclude>
                                 <exclude>com/pairion/adapters/data/weatherradar/HttpWeatherRadarDataClient$*.class</exclude>
+                                <!-- HttpWeatherCurrentDataClient: makes real HTTP calls to api.open-meteo.com.
+                                     Unit-tested via mock boundary. -->
+                                <exclude>com/pairion/adapters/data/weathercurrent/HttpWeatherCurrentDataClient.class</exclude>
+                                <exclude>com/pairion/adapters/data/weathercurrent/HttpWeatherCurrentDataClient$*.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
