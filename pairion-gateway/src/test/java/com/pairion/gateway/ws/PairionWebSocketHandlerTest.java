@@ -61,6 +61,7 @@ class PairionWebSocketHandlerTest {
                         toolDispatcher,
                         null,
                         null,
+                        null,
                         null);
         session = mock(WebSocketSession.class);
         when(session.getId()).thenReturn("test-session-1");
@@ -415,5 +416,42 @@ class PairionWebSocketHandlerTest {
         String payload = captor.getValue().getPayload();
         assertThat(payload).contains("SceneDataPush");
         assertThat(payload).contains("adsb");
+    }
+
+    @Test
+    void handleDeviceIdentifyPassesMemoryServiceToAgentSession() throws Exception {
+        // Rebuild handler with a non-null memoryService
+        com.pairion.memory.service.MemoryService memoryService =
+                mock(com.pairion.memory.service.MemoryService.class);
+        PairionWebSocketHandler handlerWithMemory =
+                new PairionWebSocketHandler(
+                        objectMapper,
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        null,
+                        null,
+                        memoryService);
+
+        // DeviceIdentify creates AgentSession with memoryService passed in
+        // The AgentSession.onAudioStreamStart calls memoryService.startEpisode
+        // So we trigger onAudioStreamStart to verify the memory service is wired
+        String identify =
+                "{\"type\":\"DeviceIdentify\",\"deviceId\":\"d1\","
+                        + "\"bearerToken\":\"tok\",\"clientVersion\":\"1.0\"}";
+        handlerWithMemory.handleTextMessage(session, new TextMessage(identify));
+
+        String streamStart =
+                "{\"type\":\"AudioStreamStart\",\"streamId\":\"s1\","
+                        + "\"codec\":\"opus\",\"sampleRate\":16000}";
+        handlerWithMemory.handleTextMessage(session, new TextMessage(streamStart));
+
+        org.mockito.Mockito.verify(memoryService)
+                .startEpisode(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.eq("default-user"));
     }
 }

@@ -96,8 +96,11 @@ Everything runs locally except weather lookups.
 |---|---|---|
 | Open-Meteo geocoding | City name → lat/lon | None |
 | Open-Meteo forecast | lat/lon → current weather | None |
+| OpenAI-compatible embeddings | Text → float vector (semantic memory) | None (local Ollama) |
 
-**Full inventory:** 7 models (4 ONNX on client, 3 on server) + 1 codec + 2 external HTTP APIs. No audio or conversation data ever leaves the device.
+The embedding endpoint is optional. When absent (`pairion.adapters.embedding.enabled=false`), episodic memory is still stored and browsable via REST but semantic recall is disabled.
+
+**Full inventory:** 7 models (4 ONNX on client, 3 on server) + 1 codec + 3 external HTTP APIs (2 required, 1 optional). No audio or conversation data ever leaves the device.
 
 ---
 

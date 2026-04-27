@@ -33,6 +33,7 @@ import com.pairion.core.ws.ToolCallStarted;
 import com.pairion.core.ws.TranscriptFinal;
 import com.pairion.core.ws.TranscriptPartial;
 import com.pairion.core.ws.WebSocketMessage;
+import com.pairion.memory.service.MemoryService;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -75,6 +76,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
     private final AdsbDataAdapter adsbDataAdapter;
     private final WeatherRadarDataAdapter weatherRadarDataAdapter;
     private final WeatherCurrentDataAdapter weatherCurrentDataAdapter;
+    @Nullable private final MemoryService memoryService;
     private final Map<String, AgentSession> sessions = new ConcurrentHashMap<>();
 
     /**
@@ -91,6 +93,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
      *     unavailable
      * @param weatherCurrentDataAdapter the current weather data adapter for Open-Meteo; null if
      *     unavailable
+     * @param memoryService the memory service for episodic recording; null if unavailable
      */
     public PairionWebSocketHandler(
             ObjectMapper objectMapper,
@@ -101,7 +104,8 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
             ToolDispatcher toolDispatcher,
             @Nullable AdsbDataAdapter adsbDataAdapter,
             @Nullable WeatherRadarDataAdapter weatherRadarDataAdapter,
-            @Nullable WeatherCurrentDataAdapter weatherCurrentDataAdapter) {
+            @Nullable WeatherCurrentDataAdapter weatherCurrentDataAdapter,
+            @Nullable MemoryService memoryService) {
         this.objectMapper = objectMapper;
         this.sttAdapter = sttAdapter;
         this.llmAdapter = llmAdapter;
@@ -111,6 +115,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
         this.adsbDataAdapter = adsbDataAdapter;
         this.weatherRadarDataAdapter = weatherRadarDataAdapter;
         this.weatherCurrentDataAdapter = weatherCurrentDataAdapter;
+        this.memoryService = memoryService;
     }
 
     /**
@@ -216,6 +221,7 @@ public class PairionWebSocketHandler extends AbstractWebSocketHandler {
                         adsbDataAdapter,
                         weatherRadarDataAdapter,
                         weatherCurrentDataAdapter,
+                        memoryService,
                         event -> sendAgentEvent(session, event));
         sessions.put(session.getId(), agentSession);
         agentSession.activateDefaultOsmView();

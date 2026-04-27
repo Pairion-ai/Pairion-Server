@@ -9,9 +9,24 @@ spring:
   threads:
     virtual:
       enabled: true
+  datasource:
+    url: jdbc:sqlite:${PAIRION_HOME:${user.home}/.pairion}/memory/pairion.db
+    driver-class-name: org.sqlite.JDBC
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.SQLiteDialect
+        show_sql: false
+    open-in-view: false
 
 pairion:
   adapters:
+    embedding:
+      baseUrl: http://localhost:11434/v1
+      model: nomic-embed-text
+      enabled: true
     # ── LLM adapter selection ────────────────────────────────────────────────
     # openaicompat: local LM Studio / Ollama / any OpenAI-compatible backend
     # anthropic:    Anthropic Claude via official Java SDK (requires ANTHROPIC_API_KEY)

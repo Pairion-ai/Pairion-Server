@@ -2,6 +2,8 @@ package com.pairion.agent.session;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -56,7 +58,8 @@ class AgentSessionTest {
         when(ttsAdapter.capabilities()).thenReturn(TtsCapabilities.unavailable());
         soulProvider = mock(SoulPromptProvider.class);
         toolDispatcher = mock(ToolDispatcher.class);
-        when(soulProvider.getSystemPrompt("test-session")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-session"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
         events = new ArrayList<>();
         session =
                 new AgentSession(
@@ -66,6 +69,7 @@ class AgentSessionTest {
                         ttsAdapter,
                         soulProvider,
                         toolDispatcher,
+                        null,
                         null,
                         null,
                         null,
@@ -1319,8 +1323,10 @@ class AgentSessionTest {
                         adsbAdapter,
                         null,
                         null,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("test-adsb")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-adsb"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
@@ -1402,8 +1408,10 @@ class AgentSessionTest {
                         adsbAdapter,
                         null,
                         null,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("test-adsb-err")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-adsb-err"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
@@ -1467,6 +1475,7 @@ class AgentSessionTest {
                         adsbAdapter,
                         null,
                         null,
+                        null,
                         events::add);
 
         // Capture the sink registered with the adapter
@@ -1491,7 +1500,8 @@ class AgentSessionTest {
                             sttConsumer[0] = inv.getArgument(0);
                             return mockSttSession;
                         });
-        when(soulProvider.getSystemPrompt("test-push")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-push"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         boolean[] firstCall = {true};
         doAnswer(
@@ -1682,8 +1692,10 @@ class AgentSessionTest {
                         null,
                         wxAdapter,
                         null,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("test-wx")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-wx"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
@@ -1743,8 +1755,10 @@ class AgentSessionTest {
                         null,
                         wxAdapter,
                         null,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("test-wx-remove")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-wx-remove"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
@@ -1803,8 +1817,10 @@ class AgentSessionTest {
                         null,
                         wxAdapter,
                         null,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("test-wx-clear")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-wx-clear"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         Consumer<SttEvent>[] sttConsumer = new Consumer[1];
         SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
@@ -1964,8 +1980,10 @@ class AgentSessionTest {
                         null,
                         null,
                         wxCurrentAdapter,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("wx-session")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("wx-session"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         when(toolDispatcher.dispatch(
                         AddOverlayTool.TOOL_NAME,
@@ -2040,8 +2058,10 @@ class AgentSessionTest {
                         null,
                         null,
                         wxCurrentAdapter,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("wx-session2")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("wx-session2"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         when(toolDispatcher.dispatch(
                         AddOverlayTool.TOOL_NAME, Map.of("overlay_id", "weather_current")))
@@ -2100,8 +2120,10 @@ class AgentSessionTest {
                         null,
                         null,
                         wxCurrentAdapter,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("wx-push-session")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("wx-push-session"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         java.util.concurrent.atomic.AtomicReference<
                         java.util.function.Consumer<
@@ -2264,8 +2286,10 @@ class AgentSessionTest {
                         null,
                         wxAdapter,
                         null,
+                        null,
                         events::add);
-        when(soulProvider.getSystemPrompt("test-wx-push")).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(eq("test-wx-push"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
 
         java.util.concurrent.atomic.AtomicReference<Consumer<WeatherRadarSnapshot>> capturedSink =
                 new java.util.concurrent.atomic.AtomicReference<>();
@@ -2334,5 +2358,190 @@ class AgentSessionTest {
                                                 && "weather_radar".equals(sdp.modelId()));
         assertThat(hasPush).isTrue();
         sessionWithWx.close();
+    }
+
+    // ── Memory integration tests ─────────────────────────────────────────────
+
+    @Test
+    void onAudioStreamStartCallsStartEpisodeWhenMemoryServicePresent() {
+        com.pairion.memory.service.MemoryService memoryService =
+                mock(com.pairion.memory.service.MemoryService.class);
+        AgentSession sessionWithMemory =
+                new AgentSession(
+                        "mem-session",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        null,
+                        null,
+                        memoryService,
+                        events::add);
+
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any())).thenReturn(mockSttSession);
+
+        sessionWithMemory.onAudioStreamStart("stream-1");
+
+        org.mockito.Mockito.verify(memoryService).startEpisode("mem-session", "default-user");
+    }
+
+    @Test
+    void onAudioStreamStartNoExceptionWhenMemoryServiceNull() {
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any())).thenReturn(mockSttSession);
+
+        // session has null memoryService (from setUp)
+        session.onAudioStreamStart("stream-1");
+
+        assertThat(session.currentState()).isEqualTo(AgentState.LISTENING);
+    }
+
+    @Test
+    void closeEndsEpisodeWhenMemoryServicePresent() {
+        com.pairion.memory.service.MemoryService memoryService =
+                mock(com.pairion.memory.service.MemoryService.class);
+        AgentSession sessionWithMemory =
+                new AgentSession(
+                        "close-session",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        null,
+                        null,
+                        memoryService,
+                        events::add);
+
+        sessionWithMemory.close();
+
+        org.mockito.Mockito.verify(memoryService).endEpisode("close-session");
+    }
+
+    @Test
+    void closeNoExceptionWhenMemoryServiceNull() {
+        // session from setUp has null memoryService
+        session.close();
+        // No exception expected
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handleSttFinalEventCallsRecordTurnWhenMemoryServicePresent() {
+        com.pairion.memory.service.MemoryService memoryService =
+                mock(com.pairion.memory.service.MemoryService.class);
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(
+                        inv -> {
+                            sttConsumer[0] = inv.getArgument(0);
+                            return mockSttSession;
+                        });
+
+        when(soulProvider.getSystemPrompt(eq("mem2-session"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
+        doAnswer(
+                        inv -> {
+                            Consumer<LlmEvent> consumer = inv.getArgument(1);
+                            consumer.accept(new LlmEvent.Stop(1));
+                            return null;
+                        })
+                .when(llmAdapter)
+                .generate(any(), any());
+
+        AgentSession sessionWithMemory =
+                new AgentSession(
+                        "mem2-session",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        null,
+                        null,
+                        memoryService,
+                        events::add);
+
+        sessionWithMemory.onAudioStreamStart("stream-mem2");
+
+        doAnswer(
+                        inv -> {
+                            sttConsumer[0].accept(new SttEvent.Final("hello memory", 500));
+                            return null;
+                        })
+                .when(mockSttSession)
+                .finalizeStream();
+
+        sessionWithMemory.onSpeechEnded();
+
+        org.mockito.Mockito.verify(memoryService)
+                .recordTurn("mem2-session", "user", "hello memory");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void synthesizeSpeechCallsRecordTurnForAssistantWhenMemoryServicePresent() {
+        com.pairion.memory.service.MemoryService memoryService =
+                mock(com.pairion.memory.service.MemoryService.class);
+
+        Consumer<SttEvent>[] sttConsumer = new Consumer[1];
+        SttAdapter.SttSession mockSttSession = mock(SttAdapter.SttSession.class);
+        when(sttAdapter.createSession(any()))
+                .thenAnswer(
+                        inv -> {
+                            sttConsumer[0] = inv.getArgument(0);
+                            return mockSttSession;
+                        });
+
+        // TTS must be available so synthesizeSpeech is invoked
+        when(ttsAdapter.capabilities()).thenReturn(new TtsCapabilities(true, true));
+
+        when(soulProvider.getSystemPrompt(eq("tts-mem-session"), anyString(), anyString()))
+                .thenReturn("You are Jarvis.");
+        doAnswer(
+                        inv -> {
+                            Consumer<LlmEvent> consumer = inv.getArgument(1);
+                            consumer.accept(new LlmEvent.TokenDelta("Hello from assistant"));
+                            consumer.accept(new LlmEvent.Stop(1));
+                            return null;
+                        })
+                .when(llmAdapter)
+                .generate(any(), any());
+
+        AgentSession sessionWithMemory =
+                new AgentSession(
+                        "tts-mem-session",
+                        sttAdapter,
+                        llmAdapter,
+                        ttsAdapter,
+                        soulProvider,
+                        toolDispatcher,
+                        null,
+                        null,
+                        null,
+                        memoryService,
+                        events::add);
+
+        sessionWithMemory.onAudioStreamStart("stream-tts-mem");
+
+        doAnswer(
+                        inv -> {
+                            sttConsumer[0].accept(new SttEvent.Final("hello", 500));
+                            return null;
+                        })
+                .when(mockSttSession)
+                .finalizeStream();
+
+        sessionWithMemory.onSpeechEnded();
+
+        org.mockito.Mockito.verify(memoryService)
+                .recordTurn("tts-mem-session", "assistant", "Hello from assistant");
     }
 }

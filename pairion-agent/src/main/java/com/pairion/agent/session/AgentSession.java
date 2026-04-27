@@ -22,6 +22,7 @@ import com.pairion.core.llm.LlmRequest;
 import com.pairion.core.llm.ToolDefinition;
 import com.pairion.core.stt.SttEvent;
 import com.pairion.core.tts.TtsEvent;
+import com.pairion.memory.service.MemoryService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,7 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.lang.Nullable;
 
 /**
  * Manages the agent turn loop for a single WebSocket session.
@@ -84,6 +86,7 @@ public class AgentSession {
     private final AdsbDataAdapter adsbDataAdapter;
     private final WeatherRadarDataAdapter weatherRadarDataAdapter;
     private final WeatherCurrentDataAdapter weatherCurrentDataAdapter;
+    @Nullable private final MemoryService memoryService;
     private final Consumer<AgentSessionEvent> eventSink;
 
     private OpusDecoder opusDecoder;
@@ -154,6 +157,8 @@ public class AgentSession {
      *     unavailable
      * @param weatherCurrentDataAdapter the current weather data adapter for Open-Meteo; null if
      *     unavailable
+     * @param memoryService the memory service for episodic recording and recall; null if
+     *     unavailable
      * @param eventSink consumer receiving agent events to forward to the Client
      */
     public AgentSession(
@@ -166,6 +171,7 @@ public class AgentSession {
             AdsbDataAdapter adsbDataAdapter,
             WeatherRadarDataAdapter weatherRadarDataAdapter,
             WeatherCurrentDataAdapter weatherCurrentDataAdapter,
+            @Nullable MemoryService memoryService,
             Consumer<AgentSessionEvent> eventSink) {
         this.sessionId = sessionId;
         this.sttAdapter = sttAdapter;
@@ -176,6 +182,7 @@ public class AgentSession {
         this.adsbDataAdapter = adsbDataAdapter;
         this.weatherRadarDataAdapter = weatherRadarDataAdapter;
         this.weatherCurrentDataAdapter = weatherCurrentDataAdapter;
+        this.memoryService = memoryService;
         this.eventSink = eventSink;
         this.clearScheduler =
                 Executors.newSingleThreadScheduledExecutor(
@@ -197,6 +204,10 @@ public class AgentSession {
 
         opusDecoder = OpusDecoder.create();
         sttSession = sttAdapter.createSession(this::handleSttEvent);
+
+        if (memoryService != null) {
+            memoryService.startEpisode(sessionId, "default-user");
+        }
 
         transitionState(AgentState.LISTENING);
     }
@@ -251,6 +262,9 @@ public class AgentSession {
         }
         if (weatherRadarDataAdapter != null) {
             weatherRadarDataAdapter.stopPolling();
+        }
+        if (memoryService != null) {
+            memoryService.endEpisode(sessionId);
         }
     }
 
@@ -470,6 +484,9 @@ public class AgentSession {
             case SttEvent.Final finalEvent -> {
                 long stageAMs = toMs(System.nanoTime() - sttStartNano);
                 eventSink.accept(new AgentSessionEvent.TranscriptFinalEvent(finalEvent.text()));
+                if (memoryService != null) {
+                    memoryService.recordTurn(sessionId, "user", finalEvent.text());
+                }
                 onTranscriptFinal(finalEvent.text(), stageAMs);
             }
         }
@@ -499,7 +516,7 @@ public class AgentSession {
 
         transitionState(AgentState.THINKING);
 
-        String systemPrompt = soulProvider.getSystemPrompt(sessionId);
+        String systemPrompt = soulProvider.getSystemPrompt(sessionId, "default-user", transcript);
         List<ToolDefinition> toolDefinitions = buildToolDefinitions();
 
         // Multi-turn tool dispatch loop with per-stage latency tracking
@@ -676,6 +693,10 @@ public class AgentSession {
         } catch (Exception e) {
             log.error("tts.stream.error: streamId={}, error={}", streamId, e.getMessage());
             endReason = "error";
+        }
+
+        if (memoryService != null) {
+            memoryService.recordTurn(sessionId, "assistant", text);
         }
 
         long ttsEndNano = System.nanoTime();

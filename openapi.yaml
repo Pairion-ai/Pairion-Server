@@ -208,9 +208,9 @@ paths:
       parameters:
         - name: userId
           in: query
-          required: true
           schema:
             type: string
+            default: default-user
         - name: limit
           in: query
           schema:
@@ -224,7 +224,50 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Episode'
+                  $ref: '#/components/schemas/EpisodeDto'
+
+  /memory/episodes/{episodeId}/turns:
+    parameters:
+      - name: episodeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [memory]
+      summary: List turns for an episode
+      operationId: listTurns
+      responses:
+        '200':
+          description: Turn list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TurnDto'
+
+  /memory/preferences:
+    get:
+      tags: [memory]
+      summary: List preferences for a user
+      operationId: listPreferences
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+            default: default-user
+      responses:
+        '200':
+          description: Preference list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PreferenceDto'
 
   /logs:
     post:
@@ -357,6 +400,71 @@ components:
           type: array
           items:
             type: object
+
+    EpisodeDto:
+      type: object
+      required: [id, userId, sessionId, startedAt, turnCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        sessionId:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        summary:
+          type: string
+        turnCount:
+          type: integer
+
+    TurnDto:
+      type: object
+      required: [id, userId, role, content, createdAt, ordinal]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        ordinal:
+          type: integer
+
+    PreferenceDto:
+      type: object
+      required: [id, userId, key, value, extractedAt, confidence]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+        key:
+          type: string
+        value:
+          type: string
+        sourceEpisodeId:
+          type: string
+          format: uuid
+        extractedAt:
+          type: string
+          format: date-time
+        confidence:
+          type: number
+          format: double
 
     ClientLogRecord:
       type: object

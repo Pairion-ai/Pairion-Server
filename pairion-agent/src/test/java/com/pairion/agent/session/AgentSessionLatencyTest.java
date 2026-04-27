@@ -54,7 +54,7 @@ class AgentSessionLatencyTest {
 
         // TTS available for all latency tests (override per-test if needed)
         when(ttsAdapter.capabilities()).thenReturn(new TtsCapabilities(true, true));
-        when(soulProvider.getSystemPrompt(any())).thenReturn("You are Jarvis.");
+        when(soulProvider.getSystemPrompt(any(), any(), any())).thenReturn("You are Jarvis.");
 
         session =
                 new AgentSession(
@@ -64,6 +64,7 @@ class AgentSessionLatencyTest {
                         ttsAdapter,
                         soulProvider,
                         toolDispatcher,
+                        null,
                         null,
                         null,
                         null,

@@ -241,6 +241,21 @@
                                      Unit-tested via mock boundary. -->
                                 <exclude>com/pairion/adapters/data/weathercurrent/HttpWeatherCurrentDataClient.class</exclude>
                                 <exclude>com/pairion/adapters/data/weathercurrent/HttpWeatherCurrentDataClient$*.class</exclude>
+                                <!-- DefaultOpenAiCompatEmbeddingClient: makes real HTTP calls to an
+                                     OpenAI-compatible embeddings endpoint. Unit-tested via mock boundary. -->
+                                <exclude>com/pairion/adapters/embedding/openaicompat/DefaultOpenAiCompatEmbeddingClient.class</exclude>
+                                <exclude>com/pairion/adapters/embedding/openaicompat/DefaultOpenAiCompatEmbeddingClient$*.class</exclude>
+                                <!-- JPA entities: plain data carriers, no testable logic. -->
+                                <exclude>com/pairion/memory/entity/Episode.class</exclude>
+                                <exclude>com/pairion/memory/entity/Turn.class</exclude>
+                                <exclude>com/pairion/memory/entity/Preference.class</exclude>
+                                <exclude>com/pairion/memory/entity/VectorEntry.class</exclude>
+                                <!-- MemoryDataSourceConfig: creates real HikariCP datasource and
+                                     JPA EntityManagerFactory targeting a filesystem SQLite path.
+                                     Requires OS-level filesystem access; not testable without full
+                                     Spring context integration. -->
+                                <exclude>com/pairion/memory/config/MemoryDataSourceConfig.class</exclude>
+                                <exclude>com/pairion/memory/config/MemoryDataSourceConfig$*.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>
